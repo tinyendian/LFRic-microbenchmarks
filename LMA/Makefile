@@ -4,11 +4,12 @@
 #! should have received as part of this distribution.
 #!-----------------------------------------------------------------------------
 
-FC=gfortran
-#FFLAGS=-g -qopenmp -traceback
-FFLAGS= 
-#LDFLAGS=-g -qopenmp -traceback
-LDFLAGS=
+# FC=gfortran
+FC=ifort
+FFLAGS=-g -qopenmp -traceback
+# FFLAGS=
+LDFLAGS=-g -qopenmp -traceback
+# LDFLAGS=
 
 VPATH=../common:.
 
@@ -21,7 +22,7 @@ VPATH=../common:.
 all : lma_driver
 
 clean:
-	rm *.o *.mod lma_driver dino.saur.gz
+	rm -f *.o *.mod lma_driver dino.saur.gz
 
 tar:
 	tar -cvf dino.saur Makefile *.F90
