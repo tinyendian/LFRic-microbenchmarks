@@ -34,7 +34,8 @@ dino_mod.o: constants_mod.o
 compare_mod.o: constants_mod.o
 argument_mod.o: 
 kernel_mod.o:
+colourist_mod.o: constants_mod.o
 matrix_vector_kernel_mod.o: constants_mod.o argument_mod.o kernel_mod.o
-lma_driver.o: constants_mod.o dino_mod.o matrix_vector_kernel_mod.o compare_mod.o
-lma_driver: lma_driver.o constants_mod.o argument_mod.o dino_mod.o kernel_mod.o matrix_vector_kernel_mod.o compare_mod.o
+lma_driver.o: constants_mod.o dino_mod.o matrix_vector_kernel_mod.o compare_mod.o colourist_mod.o
+lma_driver: lma_driver.o constants_mod.o argument_mod.o dino_mod.o kernel_mod.o matrix_vector_kernel_mod.o compare_mod.o colourist_mod.o
 

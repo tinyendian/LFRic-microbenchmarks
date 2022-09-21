@@ -27,7 +27,7 @@ contains
      if (diff > eps ) then
         count = count + 1
         if(print_me) then
-           write(*,'(A,I6,3(":",E23.16))') "compare:", df, diff, data1(df), data2(df)
+           write(*,'(A,I6,3(":",E23.16))') "compare (df, diff, data1, data2):", df, diff, data1(df), data2(df)
         end if
      end if
   end do

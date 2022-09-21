@@ -295,10 +295,10 @@ contains
   subroutine dino_destructor(self)
     implicit none
     type(dino_type), intent(inout) :: self
-    if(self%file_is_open) then
-       close(self%file_handle)
-       self%file_is_open=.false.
-    end if
+    ! if(self%file_is_open) then
+    !    close(self%file_handle)
+    !    self%file_is_open=.false.
+    ! end if
     if( allocated(self%gnu_dummy) ) then
        deallocate(self%gnu_dummy)
     end if
