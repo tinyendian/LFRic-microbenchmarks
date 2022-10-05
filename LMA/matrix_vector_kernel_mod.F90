@@ -92,6 +92,9 @@ subroutine matrix_vector_code(cell,              &
   real(kind=r_def), dimension(ndf2) :: x_e
   real(kind=r_def), dimension(ndf1) :: lhs_e
 
+  ! Optimisation
+  integer(kind=i_def) :: m1, m2
+
 ! This is the MatMul version which appears in the actuall application
 !  do k = 0, nlayers-1
 !     do df = 1, ndf2  
@@ -105,15 +108,31 @@ subroutine matrix_vector_code(cell,              &
 !  end do
 
 ! Here is the same code without matmul  
-  do k = 0, nlayers-1
-     ik = (cell-1)*nlayers+k+1
-   do df = 1,ndf1
-      do df2 = 1, ndf2
-         lhs(map1(df)+k) = lhs(map1(df)+k) + matrix(df,df2,ik)*x(map2(df2)+k)         
-         end do
-      end do
-   end do
- 
+  ! do k = 0, nlayers-1
+  !    ik = (cell-1)*nlayers+k+1
+  !  do df = 1,ndf1
+  !     do df2 = 1, ndf2
+  !        lhs(map1(df)+k) = lhs(map1(df)+k) + matrix(df,df2,ik)*x(map2(df2)+k)         
+  !        end do
+  !     end do
+  !  end do
+
+
+! Sergi's version (apart from loop running from 0 to nlayers-1)
+  ik = (cell-1)*nlayers
+  do df = 1,ndf1
+     m1 = map1(df)
+     do df2 = 1, ndf2
+        m2 = map2(df2)
+        !$OMP SIMD
+        do k = 0, nlayers-1
+           lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
+        end do
+     end do
+  end do
+
+
+
 end subroutine matrix_vector_code
 
 end module matrix_vector_kernel_mod

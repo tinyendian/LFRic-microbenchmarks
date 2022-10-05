@@ -6,9 +6,9 @@
 
 # FC=gfortran
 FC=ifort
-FFLAGS=-g -qopenmp -traceback
+FFLAGS=-g -O2 -qopenmp -qopenmp-simd -traceback
 # FFLAGS=
-LDFLAGS=-g -qopenmp -traceback
+LDFLAGS=-g -O2 -qopenmp -qopenmp-simd -traceback
 # LDFLAGS=
 
 VPATH=../common:.
@@ -22,7 +22,7 @@ VPATH=../common:.
 all : lma_driver
 
 clean:
-	rm -f *.o *.mod lma_driver dino.saur.gz
+	rm -f *.o *.mod *.optrpt lma_driver dino.saur.gz
 
 tar:
 	tar -cvf dino.saur Makefile *.F90
