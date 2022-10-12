@@ -183,56 +183,95 @@ contains
 
   ! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-  subroutine reorder_data(ncells, ndofs_per_cell, nlayers, ndofs, cell_list, dofmap, data)
+  subroutine reorder_data(ncells, ndofs_per_cell, nlayers, ndofs_total, cell_list, dofmap, data, data2)
     implicit none
-    integer(kind=i_def), intent(in) :: ncells, ndofs_per_cell, nlayers, ndofs, cell_list(ncells)
+    integer(kind=i_def), intent(in) :: ncells, ndofs_per_cell, nlayers, ndofs_total, cell_list(:)
     integer(kind=i_def), intent(inout) :: dofmap(ndofs_per_cell, ncells)
-    real(kind=r_def), intent(inout) :: data(ndofs)
+    real(kind=r_def), intent(inout) :: data(ndofs_total)
+    real(kind=r_def), intent(inout), optional :: data2(ndofs_total)
     ! Local variables
-    integer(kind=i_def) :: i, cell, dof, base_idx, data_idx
-    real(kind=r_def) :: buffer(nlayers)
-    integer(kind=l_def) :: moved(ndofs/nlayers)
+    integer(kind=i_def) :: i, cell, dof, base_idx, data_idx, j, k
+    real(kind=r_def) :: reordered_data(ndofs_total), reordered_data2(ndofs_total)
+    integer(kind=i_def) :: moved(ndofs_total), col_length, reordered_dofmap(ndofs_per_cell, ncells)
 
     write(*,'(A)') 'Reordering data...'
 
+    ! W2 function spaces:
+    ! - 6 DOFs per cell, 4 horizontal DOFs and 2 vertical ones
+    ! - Horizontal DOFs live in individual columns of nlayers length
+    ! - Vertical DOFs share a column of nlayers+1 length
+
+    if (ndofs_per_cell .ne. 6) then
+       write(*,'(A)') 'reorder_data currently only works for W2 fields'
+       stop
+    end if
+
     moved = 0
     base_idx = 1
+    reordered_dofmap = -1
 
     ! Walk through cells in the given order and reorder data array
-    do i = 1, ncells
+    do i = 1, size(cell_list)
        cell = cell_list(i)
 
-       ! Unused cells in list are marked by a negative value
+       ! Unused cell entries in list are marked by a negative value
        if (cell > 0) then
-          do dof = 1, ndofs_per_cell
+          ! Skip the last DOF, it shares the same column as the second-to-last DOF
+          do dof = 1, ndofs_per_cell-1
 
              data_idx = dofmap(dof, cell)
 
-             ! Check if data has been moved already
-             if ( moved((data_idx-1)/nlayers+1) .eq. 0) then
+             ! Check if data has been moved already (DOFs are shared)
+             if ( moved(data_idx) .eq. 0 ) then
 
-                if (base_idx .gt. ndofs-nlayers+1) then
-                   print *, 'This should not happen'
+                moved(data_idx) = 1
+
+                ! The first 4 dofs are horizontal ones where column length is nlayers,
+                ! the 5th dof is vertical, where column length is nlayers+1
+                if ( dof .le. 4 ) then
+                   col_length = nlayers
+                else
+                   col_length = nlayers+1
                 end if
 
-                moved((data_idx-1)/nlayers+1) = 1
+                reordered_data(base_idx:base_idx+col_length-1) = data(data_idx:data_idx+col_length-1)
 
-                ! Swap data
-                buffer = data(base_idx:base_idx+nlayers-1)
-                data(base_idx:base_idx+nlayers-1) = data(data_idx:data_idx+nlayers-1)
-                data(data_idx:data_idx+nlayers-1) = data(base_idx:base_idx+nlayers-1)
+                if (present(data2)) then
+                   reordered_data2(base_idx:base_idx+col_length-1) = data2(data_idx:data_idx+col_length-1)
+                end if
 
                 ! Update all pointers to this location
-                where (dofmap .eq. data_idx)
-                   dofmap = base_idx
-                end where
+                do j = 1, ncells
+                   do k = 1, ndofs_per_cell-1
+                      if (dofmap(k, j) .eq. data_idx) then
+                         reordered_dofmap(k, j) = base_idx
+                         ! Also update 6th DOF
+                         if (k .eq. ndofs_per_cell-1) reordered_dofmap(k+1, j) = base_idx+1
+                      end if
+                   end do
+                end do
 
-                base_idx = base_idx + nlayers
+                base_idx = base_idx + col_length
 
              end if
           end do
        end if
     end do
+    if ( base_idx .ne. (ndofs_total+1) ) then
+       print *, 'Reordered array is not complete!'
+       stop
+    end if
+    if ( minval(reordered_dofmap) .eq. -1 ) then
+       print *, 'Reordered dofmap is not complete!'
+       stop
+    end if
+
+    dofmap(:,:) = reordered_dofmap(:,:)
+    data(:) = reordered_data(:)
+
+    if (present(data2)) then
+       data2(:) = reordered_data2(:)
+    end if
 
   end subroutine reorder_data
 
