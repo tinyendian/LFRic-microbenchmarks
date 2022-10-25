@@ -6,11 +6,12 @@
 
 program lma_driver
   use constants_mod, only: r_def, i_def, l_def
-  use matrix_vector_kernel_mod, only: matrix_vector_code
   use dino_mod, only : dino_type
   use compare_mod, only : compare
   use colourist_mod, only: compute_colour_map, reorder_data, &
        & check_cell_order, check_colours
+  use compute_loop_mod, only: compute_loop_tiled, compute_loop_inlined, &
+       compute_loop_nocolour_notile
   implicit none
   
   ! mesh sizes
@@ -40,7 +41,7 @@ program lma_driver
   type(dino_type) :: dino
 
   ! loop counters
-  integer(kind=i_def) :: colour, cell, i
+  integer(kind=i_def) :: i
 
   integer(kind=i_def) :: count
 
@@ -52,7 +53,7 @@ program lma_driver
   real(kind=8) :: timing
 
   ! CLI
-  logical(kind=l_def) :: write_cell_props = .false.
+  logical(kind=l_def) :: write_cell_props = .false., reorder_fields = .false.
   character(len=256) :: arg
 
   ! make the reader
@@ -96,7 +97,7 @@ program lma_driver
   call dino%io_close()
 
   !  write(*,'(A)') "lma_driver:ingested dinodump",ndf1,ndf2
-  write(*,*) "lma_driver:ingested dinodump",ndf1,ndf2  
+  write(*,*) "lma_driver:ingested dinodump",ndf1,ndf2,undf1,undf2,nlayers
 
   do i = 1, command_argument_count()
      call get_command_argument(i, arg)
@@ -108,6 +109,8 @@ program lma_driver
            read(arg,*) tile_y
         case ('-w', '--write-cell-props')
            write_cell_props = .true.
+        case ('-r', '--reorder')
+           reorder_fields = .true.
      end select
   end do
   write(*, '(A,2(X,I))') ' Using tiling configuration', tile_x, tile_y
@@ -118,38 +121,33 @@ program lma_driver
   allocate( ncells_per_colour(ncolours) )
   call compute_colour_map(tile_x, tile_y, cells_per_dimension, cmap, ncells_per_colour, write_cell_props)
 
-  ! call reorder_data(ncell, ndf1, nlayers, undf1, reshape(transpose(cmap), (/ncell/)), map1, data1)
-  ! call reorder_data(ncell, ndf2, nlayers, undf2, reshape(transpose(cmap), (/ncell/)), map2, data2)
+  ! Use cmap to reorder field data (need to transpose to make cell dimension fastest-moving)
+  ! map1 - lhs
+  ! Also need to reorder answers, otherwise comparison won't work
+  if (reorder_fields) then
+     call reorder_data(ncell, ndf1, nlayers, undf1, reshape(transpose(cmap), (/size(cmap)/)), map1, data1, answer)
+  end if
 
   call check_colours(tile_x, tile_y, cells_per_dimension, ncell, ndf1, map1, ncolours, maxval(ncells_per_colour), cmap)
   call check_cell_order(tile_x, tile_y, cells_per_dimension, ncolours, maxval(ncells_per_colour), cmap, ncells_per_colour)
-  !
-  ! Repeat the work 1000 times to hide the cost of reading the data.
+
+  !$acc data copyin(ncells_per_colour, cmap, data1, data2, op_data, map1, map2)
   call system_clock(startclock, clockrate)
-  do count =1 , 100
-  do colour=1, ncolours
-  !$omp parallel default(shared), private(cell)
-  !$omp do schedule(static)
-     do cell=1,ncells_per_colour(colour)
-        call matrix_vector_code(cmap(colour,cell), nlayers, data1, data2, &
-             ncell_3d, op_data, ndf1, undf1, map1(:,cmap(colour,cell)), &
-             ndf2, undf2, map2(:,cmap(colour,cell)) )
-     end do
-  !$omp end do
-  !$omp end parallel
-  end do
-  if (count.eq.1) data1_snapshot = data1
-  end do
+
+  call compute_loop_nocolour_notile(ncolours, tile_x, tile_y, ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
+       & ncells_per_colour, cmap, map1, map2, data1, data2, op_data, data1_snapshot)
+
   call system_clock(stopclock, clockrate)
   timing = dble(stopclock - startclock)/dble(clockrate)
+  write(*,'(A, 1X, F7.2)') 'Timing:', timing
 
-  write(*,'(A, 1X, F6.1)') 'Timing:', timing
+  !$acc end data
 
   write(*,'(A)') "lma_driver:Kernel run, checking answer ..."
   !check the answer
   count = compare(data1_snapshot, answer, undf1, .false.)
-  write(*,'(A,I6,A,I6,A)') "lma_driver:checked ",undf1," answers, found ",count, " errors" 
-  
+  write(*,'(A,I8,A,I8,A)') "lma_driver:checked ",undf1," answers, found ",count, " errors" 
+
   ! deallocate the arrays
   deallocate(ncells_per_colour, cmap)
   deallocate(map1, map2)
