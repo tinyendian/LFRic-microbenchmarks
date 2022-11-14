@@ -4,20 +4,20 @@ module colourist_mod
 
 contains
 
-  subroutine compute_colour_map(tile_x, tile_y, ncells_per_dimension, colour_map, ncells_per_colour, write_maps)
+  subroutine compute_tiled_colour_map(tile_x, tile_y, ncells_per_dimension, colour_map, ncolours, ntiles_per_colour, write_maps)
     implicit none
     integer(kind=i_def), intent(in) :: tile_x, tile_y, ncells_per_dimension
-    integer(kind=i_def), intent(out), allocatable :: colour_map(:,:)
-    integer(kind=i_def), intent(out) :: ncells_per_colour(24)
+    integer(kind=i_def), intent(out), allocatable :: colour_map(:,:,:)
+    integer(kind=i_def), intent(out) :: ncolours, ntiles_per_colour
     logical(kind=l_def), intent(in) :: write_maps
     ! Local variables
-    integer(kind=i_def) :: cell_colour_order_per_panel(2,2,6)
-    integer(kind=i_def) :: cell, ncells, ncells_per_panel, panel_number, tile_number
+    integer(kind=i_def) :: cell, ncells, ncells_per_panel, panel_number, tile_number, tile
     integer(kind=i_def) :: tile_id_in_panel, ntiles_per_panel
-    integer(kind=i_def) :: ntiles_per_row, ntiles_per_column, row, column
-    integer(kind=i_def) :: colour, counter(24)
+    integer(kind=i_def) :: ntiles_per_row, ntiles_per_column, row, column, colour
+    integer(kind=i_def), allocatable :: counter(:)
     integer(kind=i_def) :: cell_properties(6*ncells_per_dimension*ncells_per_dimension,3)
 
+    ! Panel dimensions must be integer multiples of tile dimension
     if (mod(ncells_per_dimension, tile_x) .ne. 0 .or. tile_x .gt. ncells_per_dimension) then
        print *, 'Invalid tile_x'
        stop
@@ -27,29 +27,42 @@ contains
        stop
     end if
 
-    ! Colour order for 4 colours - modified so that each panel uses a different set of colours
-    cell_colour_order_per_panel(:,:,1) = reshape((/1,2,3,4/),(/2,2/))
-    cell_colour_order_per_panel(:,:,2) = reshape((/3,2,1,4/),(/2,2/)) + 4
-    cell_colour_order_per_panel(:,:,3) = reshape((/3,4,1,2/),(/2,2/)) + 8
-    cell_colour_order_per_panel(:,:,4) = reshape((/1,4,3,2/),(/2,2/)) + 12
-    cell_colour_order_per_panel(:,:,5) = reshape((/3,2,4,1/),(/2,2/)) + 16
-    cell_colour_order_per_panel(:,:,6) = reshape((/2,3,1,4/),(/2,2/)) + 20
-
+    ! Compute tiling configuration
     ncells_per_panel = ncells_per_dimension*ncells_per_dimension
     ncells = 6*ncells_per_panel
     ntiles_per_row = ncells_per_dimension/tile_x
     ntiles_per_column = ncells_per_dimension/tile_y
     ntiles_per_panel = ntiles_per_row*ntiles_per_column
 
+    ! Set the number of colours according to what is required for the requested tiling configuration
+    if (ntiles_per_row .eq. 1 .and. ntiles_per_column .eq. 1) then
+       ncolours = 6
+    else if (ntiles_per_row .eq. 1 .or. ntiles_per_column .eq. 1) then
+       ncolours = 12
+    else
+       ncolours = 24
+    end if
+    allocate(counter(ncolours))
+
+    write(*,'(A)') 'Tiling configuration:'
+    write(*,'(A,X,I7)') 'Cells:', ncells
+    write(*,'(A,X,I7)') 'Cells per panel:', ncells_per_panel
+    write(*,'(A,2(X,I4))') 'Tile size:', tile_x, tile_y
+    write(*,'(A,X,I7)') 'Tiles per panel:', ntiles_per_panel
+    write(*,'(A,X,I7)') 'Tiles per panel row:', ntiles_per_row
+    write(*,'(A,X,I7)') 'Tiles per panel column:', ntiles_per_column
+    write(*,'(A,X,I7)') 'Colours:', ncolours
+    write(*,'(A)') 'Computing tiled colour map...'
+
+    ! Loop over cells and assign tile numbers to each cell and colours to each tile
     counter = 0
-    ! Colouring across cubed-sphere panel edges is not yet correct for non-square tiles
     do cell = 1, ncells
 
        ! Cubed-sphere panel number, 1...6
        panel_number = (cell - 1) / ncells_per_panel + 1
 
        if (panel_number .lt. 1 .or. panel_number .gt. 6) then
-          print *, 'Invalid panel number', panel_number
+          write(*,'(A,X,I)') 'Invalid panel number', panel_number
           stop
        end if
 
@@ -60,7 +73,7 @@ contains
        tile_id_in_panel = tile_number - (ntiles_per_panel * (panel_number-1))
 
        if (tile_id_in_panel .lt. 1 .or. tile_id_in_panel .gt. ntiles_per_panel) then
-          print *, 'Invalid tile_id_in_panel', tile_id_in_panel
+          write(*,'(A,X,I)') 'Invalid tile_id_in_panel', tile_id_in_panel
           stop
        end if
 
@@ -68,38 +81,64 @@ contains
        column = mod(tile_id_in_panel-1, ntiles_per_row) + 1
        row = (tile_id_in_panel-1)/ntiles_per_row + 1
 
-       ! Look up colour
-       colour = cell_colour_order_per_panel(2-mod(column,2), mod(row,2)+1, panel_number)
+       ! Assign tile colour, each panel uses a different set of colours to avoid race conditions
+       if (ntiles_per_row .eq. 1 .and. ntiles_per_column .eq. 1) then
+          colour = panel_number ! No tiling - single colour per panel
+       else if (ntiles_per_row .eq. 1) then
+          colour = (panel_number-1)*2 + 1 + 1-mod(row,2) ! Row tiling - two colours per panel
+       else if (ntiles_per_column .eq. 1) then
+          colour = (panel_number-1)*2 + 1 + 1-mod(column,2) ! Column tiling - two colours per panel
+       else
+          colour = (panel_number-1)*4 + 1 + 1-mod(column,2)+ 2*(1-mod(row,2)) ! Tiling - four colours per panel
+       end if
+
+       ! Sanity check
+       if (colour .lt. 1 .or. colour .gt. ncolours) then
+          write(*,'(A)') 'Invalid colour'
+          stop
+       end if
 
        counter(colour) = counter(colour) + 1
        cell_properties(cell,:) = (/panel_number, tile_number, colour/)
 
     end do
 
-    write(*, '(A)') 'Number of cells per colour:'
-    do colour = 1, 24
-       write(*, '(A,X,I,X,A,X,I)') 'Colour:', colour, 'Cells:', counter(colour)
-    end do
-
-    if (allocated(colour_map)) then
-       deallocate(colour_map)
+    ! Sanity checks
+    if (minval(counter) .ne. maxval(counter)) then
+       write(*,'(A)') 'Unequal number of cells per colour'
+       stop
+    end if
+    if (sum(counter) .ne. ncells) then
+       write(*,'(A)') 'Unexpected number of cells'
+       stop
     end if
 
-    allocate(colour_map(24, maxval(counter)))
+    ! Number of tiles of the same colour
+    ntiles_per_colour = counter(1)/(tile_x*tile_y)
 
-    ! Reorder so that cells appear in tile order
+    if (allocated(colour_map)) deallocate(colour_map)
+    allocate(colour_map(ncolours, ntiles_per_colour, tile_x*tile_y))
+
+    ! Loop over tiles and arrange cells contiguously per tile to improve cache utilisation
     colour_map = -1
     counter = 0
     do tile_number = 1, 6*ntiles_per_panel
        do cell = 1, ncells
           if (cell_properties(cell, 2) .eq. tile_number) then
              colour = cell_properties(cell, 3)
+             ! Fill up tiles of the same colour
+             tile = counter(colour)/(tile_x*tile_y) + 1
              counter(colour) = counter(colour) + 1
-             colour_map(colour, counter(colour)) = cell
+             colour_map(colour, tile, counter(colour) - (tile-1)*tile_x*tile_y) = cell
           end if
        end do
     end do
-    ncells_per_colour = counter
+
+    ! Sanity check
+    if (minval(colour_map) .lt. 1) then
+       write(*,'(A)') 'Colour map incomplete'
+       stop
+    end if
 
     if (write_maps) then
        write(*,'(A)') 'Writing cell property maps...'
@@ -112,7 +151,7 @@ contains
 
     end if
 
-  end subroutine compute_colour_map
+  end subroutine compute_tiled_colour_map
 
   ! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -214,48 +253,46 @@ contains
     do i = 1, size(cell_list)
        cell = cell_list(i)
 
-       ! Unused cell entries in list are marked by a negative value
-       if (cell > 0) then
-          ! Skip the last DOF, it shares the same column as the second-to-last DOF
-          do dof = 1, ndofs_per_cell-1
+       ! Skip the last DOF, it shares the same column as the second-to-last DOF
+       do dof = 1, ndofs_per_cell-1
 
-             data_idx = dofmap(dof, cell)
+          data_idx = dofmap(dof, cell)
 
-             ! Check if data has been moved already (DOFs are shared)
-             if ( moved(data_idx) .eq. 0 ) then
+          ! Check if data has been moved already (DOFs are shared)
+          if ( moved(data_idx) .eq. 0 ) then
 
-                moved(data_idx) = 1
+             moved(data_idx) = 1
 
-                ! The first 4 dofs are horizontal ones where column length is nlayers,
-                ! the 5th dof is vertical, where column length is nlayers+1
-                if ( dof .le. 4 ) then
-                   col_length = nlayers
-                else
-                   col_length = nlayers+1
-                end if
-
-                reordered_data(base_idx:base_idx+col_length-1) = data(data_idx:data_idx+col_length-1)
-
-                if (present(data2)) then
-                   reordered_data2(base_idx:base_idx+col_length-1) = data2(data_idx:data_idx+col_length-1)
-                end if
-
-                ! Update all pointers to this location
-                do j = 1, ncells
-                   do k = 1, ndofs_per_cell-1
-                      if (dofmap(k, j) .eq. data_idx) then
-                         reordered_dofmap(k, j) = base_idx
-                         ! Also update 6th DOF
-                         if (k .eq. ndofs_per_cell-1) reordered_dofmap(k+1, j) = base_idx+1
-                      end if
-                   end do
-                end do
-
-                base_idx = base_idx + col_length
-
+             ! The first 4 dofs are horizontal ones where column length is nlayers,
+             ! the 5th dof is vertical, where column length is nlayers+1
+             if ( dof .le. 4 ) then
+                col_length = nlayers
+             else
+                col_length = nlayers+1
              end if
-          end do
-       end if
+
+             reordered_data(base_idx:base_idx+col_length-1) = data(data_idx:data_idx+col_length-1)
+
+             if (present(data2)) then
+                reordered_data2(base_idx:base_idx+col_length-1) = data2(data_idx:data_idx+col_length-1)
+             end if
+
+             ! Update all pointers to this location
+             do j = 1, ncells
+                do k = 1, ndofs_per_cell-1
+                   if (dofmap(k, j) .eq. data_idx) then
+                      reordered_dofmap(k, j) = base_idx
+                      ! Also update 6th DOF
+                      if (k .eq. ndofs_per_cell-1) reordered_dofmap(k+1, j) = base_idx+1
+                   end if
+                end do
+             end do
+
+             base_idx = base_idx + col_length
+
+          end if
+       end do
+
     end do
     if ( base_idx .ne. (ndofs_total+1) ) then
        print *, 'Reordered array is not complete!'
@@ -277,29 +314,29 @@ contains
 
   ! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-  subroutine check_colours(tile_x, tile_y, ncells_per_dimension, ncells, ndofs_per_cell, dofmap, ncolours, ncellmax, colour_map)
+  subroutine check_tile_colouring(tile_x, tile_y, ncells_per_dimension, ncells, ndofs_per_cell, dofmap, ncolours, ntiles_per_colour, colour_map)
     implicit none
     integer(kind=i_def), intent(in) :: tile_x, tile_y
-    integer(kind=i_def), intent(in) :: ncells_per_dimension, ncells, ndofs_per_cell, ncolours, ncellmax
+    integer(kind=i_def), intent(in) :: ncells_per_dimension, ncells, ndofs_per_cell, ncolours, ntiles_per_colour
     integer(kind=i_def), intent(in) :: dofmap(ndofs_per_cell,ncells)
-    integer(kind=i_def), intent(in) :: colour_map(ncolours, ncellmax)
+    integer(kind=i_def), intent(in) :: colour_map(ncolours, ntiles_per_colour, tile_x*tile_y)
     ! Local variables
-    integer(kind=i_def) :: colour, cell, dof, nb_cell, nb_dof, i
-    integer(kind=i_def) :: ncells_per_panel, panel_number_1, panel_number_2, num_neighbours
+    integer(kind=i_def) :: colour, cell, dof, nb_cell, nb_dof, cell_in_tile, tile
+    integer(kind=i_def) :: ncells_per_panel, ncells_per_tile, panel_number_1, panel_number_2, num_neighbours
     integer(kind=i_def) :: cell_colours(ncells), tile_number(ncells)
 
-    write(*, '(A)') 'Checking colours...'
+    write(*, '(A)') 'Checking tile colouring...'
 
     ncells_per_panel = ncells_per_dimension*ncells_per_dimension
+    ncells_per_tile = tile_x*tile_y
 
-    ! Reconstruct colour table for each cell
+    ! Look up colour for each cell
     cell_colours = -1
     do colour = 1, ncolours
-       do i = 1, ncellmax
-          cell = colour_map(colour, i)
-          if (cell .gt. 0) then
-             cell_colours(cell) = colour
-          end if
+       do tile = 1, ntiles_per_colour
+          do cell_in_tile = 1, ncells_per_tile
+             cell_colours(colour_map(colour, tile, cell_in_tile)) = colour
+          end do
        end do
     end do
 
@@ -308,7 +345,7 @@ contains
        stop
     end if
 
-    ! Compute tile numbers
+    ! Compute tile number for each cell
     do cell = 1, ncells
        tile_number(cell) = compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y)
     end do
@@ -316,17 +353,27 @@ contains
     ! Loop over all DOFs in all cells, identify neighbours with shared DOFs, and compare colours
     ! cells are not in the same tile
     num_neighbours = 0
+    !$omp parallel do default(shared) private(cell, nb_cell, dof, nb_dof, panel_number_1, panel_number_2) reduction(+:num_neighbours)
     do cell = 1, ncells
        do nb_cell = 1, ncells
 
           if (nb_cell .ne. cell) then
 
+             ! If cells belong to the same tile, their colours must be the same
+             if (tile_number(nb_cell) .eq. tile_number(cell) .and. cell_colours(nb_cell) .ne. cell_colours(cell)) then
+                write(*,'(A)') 'Inconsistent colours in the same tile'
+                stop
+             end if
+
              do dof = 1, ndofs_per_cell
                 do nb_dof = 1, ndofs_per_cell
 
+                   ! If cells share the same DOF, they are neighbours
                    if ( dofmap(nb_dof, nb_cell) .eq. dofmap(dof, cell)) then
 
                       num_neighbours = num_neighbours + 1
+
+                      ! Flag neighbour cells that have the same colour, but don't belong to the same tile
                       if (tile_number(nb_cell) .ne. tile_number(cell) .and. &
                            & cell_colours(nb_cell) .eq. cell_colours(cell)) then
                          ! Cubed-sphere panel number, 1...6
@@ -344,50 +391,54 @@ contains
 
        end do
     end do
+    !$omp end parallel do
 
     write(*, '(A,X,F4.1,X,A)') 'Cells share ', real(num_neighbours)/real(ncells), ' DOFs on average'
     write(*,'(A)') 'Cell colouring check done.'
 
-  end subroutine check_colours
+  end subroutine check_tile_colouring
 
   ! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-  subroutine check_cell_order(tile_x, tile_y, ncells_per_dimension, ncolours, ncellmax, colour_map, ncells_per_colour)
+  subroutine check_cell_order(tile_x, tile_y, ncells_per_dimension, ncolours, ntiles_per_colour, colour_map)
     implicit none
-    integer(kind=i_def), intent(in) :: tile_x, tile_y, ncells_per_dimension, ncolours, ncellmax
-    integer(kind=i_def), intent(in) :: colour_map(ncolours, ncellmax), ncells_per_colour(ncolours)
+    integer(kind=i_def), intent(in) :: tile_x, tile_y, ncells_per_dimension, ncolours, ntiles_per_colour
+    integer(kind=i_def), intent(in) :: colour_map(ncolours, ntiles_per_colour, tile_x*tile_y)
     ! Local variables
-    integer(kind=i_def) :: colour, cell, previous_cell, i, tile_number
+    integer(kind=i_def) :: colour, cell, previous_cell, cell_in_tile, tile_number, tile
     integer(kind=i_def) :: ncells_per_tile
 
     write(*,'(A)') 'Checking cell order in colour map...'
 
     ncells_per_tile = tile_x*tile_y
 
-    ! Loop over all cells in the colour map and check that they belong to the same tile,
-    ! and that they are ordered continuously within tile rows
+    ! Loop over all cells in the colour map, check that are all valid or invalid, that they belong to the same tile,
+    ! and that they are ordered contiguously within tile rows
     do colour = 1, ncolours
-       previous_cell = 0
-       tile_number = 0
-       do i = 1, ncells_per_colour(colour)
+       do tile = 1, ntiles_per_colour
+          tile_number = 0
+          previous_cell = 0
+          do cell_in_tile = 1, ncells_per_tile
 
-          cell = colour_map(colour, i)
+             cell = colour_map(colour, tile, cell_in_tile)
 
-          ! First cell in a new tile - reset tile number
-          if (mod(i-1, ncells_per_tile) .eq. 0) then
-             tile_number = compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y)
-          else if (compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y) .ne. tile_number ) then
-             write(*, '(A, 3(X,I))') 'Cell does not belong to current tile - cell, tile number, current tile:', &
-                  & cell, compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y), tile_number
-          end if
+             ! First cell in a new tile - reset tile number, check for consistency otherwise
+             if (cell_in_tile .eq. 1) then
+                tile_number = compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y)
+             else if (compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y) .ne. tile_number) then
+                write(*, '(A, 3(X,I))') 'Cell does not belong to current tile - cell, tile number, current tile:', &
+                     & cell, compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y), tile_number
+             end if
 
-          if (mod(i-1, tile_x) .ne. 0 .and. cell .ne. previous_cell + 1) then
-             write(*, '(A, 2(X,I))') 'Cell order is not continous - cell, previous cell:', &
-                  & cell, previous_cell
-          end if
+             ! Check if cells are contiguous within tile rows
+             if (mod(cell_in_tile-1, tile_x) .ne. 0 .and. cell .ne. previous_cell + 1) then
+                write(*, '(A, 2(X,I))') 'Cell order is not continuous - cell, previous cell:', &
+                     & cell, previous_cell
+             end if
 
-          previous_cell = cell
+             previous_cell = cell
 
+          end do
        end do
     end do
 

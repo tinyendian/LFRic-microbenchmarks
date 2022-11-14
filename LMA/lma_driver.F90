@@ -8,19 +8,19 @@ program lma_driver
   use constants_mod, only: r_def, i_def, l_def
   use dino_mod, only : dino_type
   use compare_mod, only : compare
-  use colourist_mod, only: compute_colour_map, reorder_data, &
-       & check_cell_order, check_colours
-  use compute_loop_mod, only: compute_loop_tiled, compute_loop_inlined, &
-       compute_loop_nocolour_notile
+  use colourist_mod, only: compute_tiled_colour_map, reorder_data, &
+       & check_cell_order, check_tile_colouring
+  use compute_loop_mod, only: compute_loop_tiled, compute_loop_inlined
   implicit none
   
   ! mesh sizes
   integer(kind=i_def) :: ncell, ncell_3d, nlayers
   
   ! colouring sizes and arrays
-  integer(kind=i_def)                              :: ncolours
+  integer(kind=i_def)                              :: ncolours, ntiles_per_colour
   integer(kind=i_def), allocatable, dimension(:)   :: ncells_per_colour
   integer(kind=i_def), allocatable, dimension(:,:) :: cmap
+  integer(kind=i_def), allocatable, dimension(:,:,:) :: cmap_tiled
   
   ! dof-maps for space 1
   integer(kind=i_def) :: ndf1, undf1
@@ -113,29 +113,27 @@ program lma_driver
            reorder_fields = .true.
      end select
   end do
-  write(*, '(A,2(X,I))') ' Using tiling configuration', tile_x, tile_y
 
-  ! Compute new colour map
-  deallocate(ncells_per_colour)
-  ncolours = 24
-  allocate( ncells_per_colour(ncolours) )
-  call compute_colour_map(tile_x, tile_y, cells_per_dimension, cmap, ncells_per_colour, write_cell_props)
+  ! Compute new tiled colour map
+  call compute_tiled_colour_map(tile_x, tile_y, cells_per_dimension, cmap_tiled, ncolours, ntiles_per_colour, write_cell_props)
 
   ! Use cmap to reorder field data (need to transpose to make cell dimension fastest-moving)
   ! map1 - lhs
   ! Also need to reorder answers, otherwise comparison won't work
   if (reorder_fields) then
-     call reorder_data(ncell, ndf1, nlayers, undf1, reshape(transpose(cmap), (/size(cmap)/)), map1, data1, answer)
+     call reorder_data(ncell, ndf1, nlayers, undf1, &
+          & reshape(transpose(reshape(cmap_tiled, (/ncolours, ntiles_per_colour*tile_x*tile_y/))), (/size(cmap_tiled)/)), &
+          & map1, data1, answer)
   end if
 
-  call check_colours(tile_x, tile_y, cells_per_dimension, ncell, ndf1, map1, ncolours, maxval(ncells_per_colour), cmap)
-  call check_cell_order(tile_x, tile_y, cells_per_dimension, ncolours, maxval(ncells_per_colour), cmap, ncells_per_colour)
+  call check_tile_colouring(tile_x, tile_y, cells_per_dimension, ncell, ndf1, map1, ncolours, ntiles_per_colour, cmap_tiled)
+  call check_cell_order(tile_x, tile_y, cells_per_dimension, ncolours, ntiles_per_colour, cmap_tiled)
 
   !$acc data copyin(ncells_per_colour, cmap, data1, data2, op_data, map1, map2)
   call system_clock(startclock, clockrate)
 
-  call compute_loop_nocolour_notile(ncolours, tile_x, tile_y, ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
-       & ncells_per_colour, cmap, map1, map2, data1, data2, op_data, data1_snapshot)
+  call compute_loop_tiled(ncolours, tile_x, tile_y, ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
+       & ntiles_per_colour, cmap_tiled, map1, map2, data1, data2, op_data, data1_snapshot)
 
   call system_clock(stopclock, clockrate)
   timing = dble(stopclock - startclock)/dble(clockrate)
