@@ -10,7 +10,7 @@ contains
        & ntiles_per_colour, cmap, map1, map2, data1, data2, op_data, data1_snapshot, colouring)
 
     use matrix_vector_kernel_mod, only: matrix_vector_code
-    use omp_lib, only: omp_get_num_threads, omp_get_thread_num
+    use omp_lib, only: omp_get_num_threads, omp_get_thread_num, omp_get_max_threads
 
     implicit none
 
@@ -36,7 +36,8 @@ contains
        write(*,'(A)') 'Running without atomic updates'
     end if
 
-    write(*,'(A,I6)') 'Number of tiles for parallel computation: ntiles_per_colour=', ntiles_per_colour
+    write(*,'(A,2(X,I6))') 'Number of tiles for parallel computation vs number of threads:', &
+         & ntiles_per_colour, omp_get_max_threads()
 
     ! Repeat the work 1000 times to hide the cost of reading the data.
     do count = 1, 1000
