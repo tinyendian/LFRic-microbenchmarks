@@ -62,7 +62,7 @@ contains
        panel_number = (cell - 1) / ncells_per_panel + 1
 
        if (panel_number .lt. 1 .or. panel_number .gt. 6) then
-          write(*,'(A,X,I)') 'Invalid panel number', panel_number
+          write(*,'(A,X,I3)') 'Invalid panel number', panel_number
           stop
        end if
 
@@ -73,7 +73,7 @@ contains
        tile_id_in_panel = tile_number - (ntiles_per_panel * (panel_number-1))
 
        if (tile_id_in_panel .lt. 1 .or. tile_id_in_panel .gt. ntiles_per_panel) then
-          write(*,'(A,X,I)') 'Invalid tile_id_in_panel', tile_id_in_panel
+          write(*,'(A,X,I9)') 'Invalid tile_id_in_panel', tile_id_in_panel
           stop
        end if
 
@@ -314,7 +314,8 @@ contains
 
   ! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-  subroutine check_tile_colouring(tile_x, tile_y, ncells_per_dimension, ncells, ndofs_per_cell, dofmap, ncolours, ntiles_per_colour, colour_map)
+  subroutine check_tile_colouring(tile_x, tile_y, ncells_per_dimension, ncells, ndofs_per_cell, dofmap, ncolours, &
+       &                          ntiles_per_colour, colour_map)
     implicit none
     integer(kind=i_def), intent(in) :: tile_x, tile_y
     integer(kind=i_def), intent(in) :: ncells_per_dimension, ncells, ndofs_per_cell, ncolours, ntiles_per_colour
@@ -353,7 +354,8 @@ contains
     ! Loop over all DOFs in all cells, identify neighbours with shared DOFs, and compare colours
     ! cells are not in the same tile
     num_neighbours = 0
-    !$omp parallel do default(shared) private(cell, nb_cell, dof, nb_dof, panel_number_1, panel_number_2) reduction(+:num_neighbours)
+    !$omp parallel do default(shared) private(cell, nb_cell, dof, nb_dof, panel_number_1, panel_number_2) &
+    !$omp & reduction(+:num_neighbours)
     do cell = 1, ncells
        do nb_cell = 1, ncells
 
@@ -379,7 +381,7 @@ contains
                          ! Cubed-sphere panel number, 1...6
                          panel_number_1 = (cell - 1) / ncells_per_panel + 1
                          panel_number_2 = (nb_cell - 1) / ncells_per_panel + 1
-                         write(*, '(2(A,X,I,X,I,X))') 'Neighbour cells with same colour:', cell, nb_cell, &
+                         write(*, '(2(A,X,I6,X,I6,X))') 'Neighbour cells with same colour:', cell, nb_cell, &
                               & ' panels ', panel_number_1, panel_number_2
                       end if
 
@@ -426,13 +428,13 @@ contains
              if (cell_in_tile .eq. 1) then
                 tile_number = compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y)
              else if (compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y) .ne. tile_number) then
-                write(*, '(A, 3(X,I))') 'Cell does not belong to current tile - cell, tile number, current tile:', &
+                write(*, '(A, 3(X,I6))') 'Cell does not belong to current tile - cell, tile number, current tile:', &
                      & cell, compute_tile_number(cell, ncells_per_dimension, tile_x, tile_y), tile_number
              end if
 
              ! Check if cells are contiguous within tile rows
              if (mod(cell_in_tile-1, tile_x) .ne. 0 .and. cell .ne. previous_cell + 1) then
-                write(*, '(A, 2(X,I))') 'Cell order is not continuous - cell, previous cell:', &
+                write(*, '(A, 2(X,I6))') 'Cell order is not continuous - cell, previous cell:', &
                      & cell, previous_cell
              end if
 
