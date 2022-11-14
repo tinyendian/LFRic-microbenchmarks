@@ -54,6 +54,7 @@ program lma_driver
 
   ! CLI
   logical(kind=l_def) :: write_cell_props = .false., reorder_fields = .false.
+  logical(kind=l_def) :: colouring = .true.
   character(len=256) :: arg
 
   ! make the reader
@@ -111,11 +112,17 @@ program lma_driver
            write_cell_props = .true.
         case ('-r', '--reorder')
            reorder_fields = .true.
+        case ('-n', '--no-colouring')
+           ! Tiles will not be coloured within in each panel, but different panels
+           ! get different colours, to ensure a fair comparison of per-panel performance
+           ! Implies using atomics in the compute loop to avoid race conditions
+           colouring = .false.
      end select
   end do
 
   ! Compute new tiled colour map
-  call compute_tiled_colour_map(tile_x, tile_y, cells_per_dimension, cmap_tiled, ncolours, ntiles_per_colour, write_cell_props)
+  call compute_tiled_colour_map(tile_x, tile_y, cells_per_dimension, cmap_tiled, ncolours, ntiles_per_colour, &
+       & colouring, write_cell_props)
 
   ! Use cmap to reorder field data (need to transpose to make cell dimension fastest-moving)
   ! map1 - lhs
@@ -126,14 +133,16 @@ program lma_driver
           & map1, data1, answer)
   end if
 
-  call check_tile_colouring(tile_x, tile_y, cells_per_dimension, ncell, ndf1, map1, ncolours, ntiles_per_colour, cmap_tiled)
+  if (colouring) then
+     call check_tile_colouring(tile_x, tile_y, cells_per_dimension, ncell, ndf1, map1, ncolours, ntiles_per_colour, cmap_tiled)
+  end if
   call check_cell_order(tile_x, tile_y, cells_per_dimension, ncolours, ntiles_per_colour, cmap_tiled)
 
   !$acc data copyin(ncells_per_colour, cmap, data1, data2, op_data, map1, map2)
   call system_clock(startclock, clockrate)
 
   call compute_loop_tiled(ncolours, tile_x, tile_y, ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
-       & ntiles_per_colour, cmap_tiled, map1, map2, data1, data2, op_data, data1_snapshot)
+       & ntiles_per_colour, cmap_tiled, map1, map2, data1, data2, op_data, data1_snapshot, colouring)
 
   call system_clock(stopclock, clockrate)
   timing = dble(stopclock - startclock)/dble(clockrate)

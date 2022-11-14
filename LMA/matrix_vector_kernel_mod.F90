@@ -11,7 +11,7 @@ use argument_mod,            only : arg_type,                               &
                                     GH_FIELD, GH_OPERATOR, GH_READ, GH_INC, &
                                     ANY_SPACE_1, ANY_SPACE_2,               &
                                     CELLS 
-use constants_mod,           only : r_def, i_def
+use constants_mod,           only : r_def, i_def, l_def
 use kernel_mod,              only : kernel_type
 
 implicit none
@@ -72,7 +72,8 @@ subroutine matrix_vector_code(cell,              &
                               ncell_3d,          &
                               matrix,            &
                               ndf1, undf1, map1, &
-                              ndf2, undf2, map2)
+                              ndf2, undf2, map2, &
+                              atomic)
  
   implicit none
 
@@ -86,6 +87,7 @@ subroutine matrix_vector_code(cell,              &
   real(kind=r_def), dimension(undf1),              intent(inout) :: lhs
   real(kind=r_def), dimension(ndf1,ndf2,ncell_3d), intent(in)    :: matrix
 ! real(kind=r_def), dimension(ncell_3d,ndf1,ndf2), intent(in)    :: matrix  
+  logical(kind=l_def), intent(in) :: atomic
 
   ! Internal variables
   integer(kind=i_def)               :: df, k, ik , df2
@@ -117,20 +119,34 @@ subroutine matrix_vector_code(cell,              &
   !     end do
   !  end do
 
-
-! Sergi's version (apart from loop running from 0 to nlayers-1)
-  ik = (cell-1)*nlayers
-  do df = 1,ndf1
-     m1 = map1(df)
-     do df2 = 1, ndf2
-        m2 = map2(df2)
-        !$OMP SIMD
-        do k = 0, nlayers-1
-           lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
+  if (atomic) then
+     ! Use atomics to prevent data races - this prevents vectorisation with Intel compiler
+     ik = (cell-1)*nlayers
+     do df = 1,ndf1
+        m1 = map1(df)
+        do df2 = 1, ndf2
+           m2 = map2(df2)
+           !$OMP SIMD
+           do k = 0, nlayers-1
+              !$OMP ATOMIC UPDATE
+              lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
+           end do
         end do
      end do
-  end do
-
+  else
+     ! Sergi's version (apart from loop running from 0 to nlayers-1)
+     ik = (cell-1)*nlayers
+     do df = 1,ndf1
+        m1 = map1(df)
+        do df2 = 1, ndf2
+           m2 = map2(df2)
+           !$OMP SIMD
+           do k = 0, nlayers-1
+              lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
+           end do
+        end do
+     end do
+  end if
 
 
 end subroutine matrix_vector_code

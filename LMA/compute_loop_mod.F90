@@ -1,15 +1,16 @@
 module compute_loop_mod
 
-  use constants_mod, only: r_def, i_def
+  use constants_mod, only: r_def, i_def, l_def
 
   implicit none
 
 contains
 
   subroutine compute_loop_tiled(ncolours, tile_x, tile_y, ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
-       & ntiles_per_colour, cmap, map1, map2, data1, data2, op_data, data1_snapshot)
+       & ntiles_per_colour, cmap, map1, map2, data1, data2, op_data, data1_snapshot, colouring)
 
     use matrix_vector_kernel_mod, only: matrix_vector_code
+    use omp_lib, only: omp_get_num_threads, omp_get_thread_num
 
     implicit none
 
@@ -18,25 +19,41 @@ contains
     real(kind=r_def), intent(in) :: op_data(:,:,:), data2(:)
     real(kind=r_def), intent(inout) :: data1(:)
     real(kind=r_def), intent(out) :: data1_snapshot(:)
+    logical(kind=l_def), intent(in) :: colouring
 
     integer(kind=i_def) :: count, colour, ncells_per_tile, tile, cell
+    logical(kind=l_def) :: atomic
 
-    write(*,*) 'Running version compute_loop_tiled'
+    write(*,'(A)') 'Running version compute_loop_tiled'
 
     ncells_per_tile = tile_x*tile_y
+
+    ! Use atomic updates if running without colouring
+    atomic = .not. colouring
+    if (atomic) then
+       write(*,'(A)') 'Running with atomic updates'
+    else
+       write(*,'(A)') 'Running without atomic updates'
+    end if
+
+    write(*,'(A,I6)') 'Number of tiles for parallel computation: ntiles_per_colour=', ntiles_per_colour
 
     ! Repeat the work 1000 times to hide the cost of reading the data.
     do count = 1, 1000
        do colour = 1, ncolours
 
           !$omp parallel default(shared), private(tile, cell)
+          if (omp_get_num_threads() .gt. ntiles_per_colour .and. count .eq. 1 .and. &
+               & colour .eq. 1 .and. omp_get_thread_num() .eq. 1) then
+             write(*,'(A)') 'WARNING: MORE THREADS AVAILABLE THAN TILES'
+          end if
           !$omp do schedule(static)
           do tile = 1, ntiles_per_colour
 
              do cell = 1, ncells_per_tile
                 call matrix_vector_code(cmap(colour,tile, cell), nlayers, data1, data2, &
                      ncell_3d, op_data, ndf1, undf1, map1(:,cmap(colour,tile,cell)), &
-                     ndf2, undf2, map2(:,cmap(colour,tile,cell)) )
+                     ndf2, undf2, map2(:,cmap(colour,tile,cell)), atomic)
              end do
           end do
           !$omp end do

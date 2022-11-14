@@ -4,12 +4,13 @@ module colourist_mod
 
 contains
 
-  subroutine compute_tiled_colour_map(tile_x, tile_y, ncells_per_dimension, colour_map, ncolours, ntiles_per_colour, write_maps)
+  subroutine compute_tiled_colour_map(tile_x, tile_y, ncells_per_dimension, colour_map, ncolours, &
+       & ntiles_per_colour, colouring, write_maps)
     implicit none
     integer(kind=i_def), intent(in) :: tile_x, tile_y, ncells_per_dimension
     integer(kind=i_def), intent(out), allocatable :: colour_map(:,:,:)
     integer(kind=i_def), intent(out) :: ncolours, ntiles_per_colour
-    logical(kind=l_def), intent(in) :: write_maps
+    logical(kind=l_def), intent(in) :: colouring, write_maps
     ! Local variables
     integer(kind=i_def) :: cell, ncells, ncells_per_panel, panel_number, tile_number, tile
     integer(kind=i_def) :: tile_id_in_panel, ntiles_per_panel
@@ -35,7 +36,9 @@ contains
     ntiles_per_panel = ntiles_per_row*ntiles_per_column
 
     ! Set the number of colours according to what is required for the requested tiling configuration
-    if (ntiles_per_row .eq. 1 .and. ntiles_per_column .eq. 1) then
+    ! Colour entire panels if no colouring is requested, to prevent full parallelisation over the entire
+    ! mesh, which could lead to an unfair comparison with the other setups
+    if ((.not. colouring) .or. (ntiles_per_row .eq. 1 .and. ntiles_per_column .eq. 1)) then
        ncolours = 6
     else if (ntiles_per_row .eq. 1 .or. ntiles_per_column .eq. 1) then
        ncolours = 12
@@ -52,6 +55,11 @@ contains
     write(*,'(A,X,I7)') 'Tiles per panel row:', ntiles_per_row
     write(*,'(A,X,I7)') 'Tiles per panel column:', ntiles_per_column
     write(*,'(A,X,I7)') 'Colours:', ncolours
+    if (colouring) then
+       write(*,'(A)') 'Running with colouring'
+    else
+       write(*,'(A)') 'Running WITHOUT colouring (single colour per panel)'
+    end if
     write(*,'(A)') 'Computing tiled colour map...'
 
     ! Loop over cells and assign tile numbers to each cell and colours to each tile
@@ -82,8 +90,8 @@ contains
        row = (tile_id_in_panel-1)/ntiles_per_row + 1
 
        ! Assign tile colour, each panel uses a different set of colours to avoid race conditions
-       if (ntiles_per_row .eq. 1 .and. ntiles_per_column .eq. 1) then
-          colour = panel_number ! No tiling - single colour per panel
+       if ((.not. colouring) .or. (ntiles_per_row .eq. 1 .and. ntiles_per_column .eq. 1)) then
+          colour = panel_number ! No tiling or no (in-panel) colouring - single colour per panel
        else if (ntiles_per_row .eq. 1) then
           colour = (panel_number-1)*2 + 1 + 1-mod(row,2) ! Row tiling - two colours per panel
        else if (ntiles_per_column .eq. 1) then
