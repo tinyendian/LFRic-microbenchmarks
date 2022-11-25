@@ -85,8 +85,9 @@ subroutine matrix_vector_code(cell,              &
   integer(kind=i_def), dimension(ndf2), intent(in) :: map2
   real(kind=r_def), dimension(undf2),              intent(in)    :: x
   real(kind=r_def), dimension(undf1),              intent(inout) :: lhs
-  real(kind=r_def), dimension(ndf1,ndf2,ncell_3d), intent(in)    :: matrix
-! real(kind=r_def), dimension(ncell_3d,ndf1,ndf2), intent(in)    :: matrix  
+  ! real(kind=r_def), dimension(ndf1,ndf2,ncell_3d), intent(in)    :: matrix
+  real(kind=r_def), dimension(ncell_3d,ndf1,ndf2), intent(in)    :: matrix  
+  ! real(kind=r_def), dimension(ncell_3d,ndf2,ndf1), intent(in)    :: matrix  
   logical(kind=l_def), intent(in) :: atomic
 
   ! Internal variables
@@ -126,7 +127,6 @@ subroutine matrix_vector_code(cell,              &
         m1 = map1(df)
         do df2 = 1, ndf2
            m2 = map2(df2)
-           !$OMP SIMD
            do k = 0, nlayers-1
               !$OMP ATOMIC UPDATE
               lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
@@ -135,17 +135,44 @@ subroutine matrix_vector_code(cell,              &
      end do
   else
      ! Sergi's version (apart from loop running from 0 to nlayers-1)
+     ! ik = (cell-1)*nlayers
+     ! do df = 1,ndf1
+     !    m1 = map1(df)
+     !    do df2 = 1, ndf2
+     !       m2 = map2(df2)
+     !       !$OMP SIMD
+     !       do k = 0, nlayers-1
+     !          lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
+     !       end do
+     !    end do
+     ! end do
+
+     ! k-first storage order, k-inner loop order
      ik = (cell-1)*nlayers
-     do df = 1,ndf1
-        m1 = map1(df)
-        do df2 = 1, ndf2
-           m2 = map2(df2)
+     do df2 = 1, ndf2
+        m2 = map2(df2)
+        do df = 1,ndf1
+           m1 = map1(df)
            !$OMP SIMD
            do k = 0, nlayers-1
-              lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
+              lhs(m1+k) = lhs(m1+k) + matrix(ik+k+1,df,df2)*x(m2+k)
            end do
         end do
      end do
+
+     ! k-first storage order, k-outer loop order
+     ! ik = (cell-1)*nlayers
+     ! !$OMP SIMD
+     ! do k = 0, nlayers-1
+     !    do df = 1,ndf1
+     !       m1 = map1(df)
+     !       do df2 = 1, ndf2
+     !          m2 = map2(df2)
+     !          lhs(m1+k) = lhs(m1+k) + matrix(ik+k+1,df2,df)*x(m2+k)
+     !       end do
+     !    end do
+     ! end do
+
   end if
 
 

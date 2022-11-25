@@ -34,14 +34,14 @@ program lma_driver
   real(kind=r_def), allocatable, dimension(:)     :: data1
   real(kind=r_def), allocatable, dimension(:)     :: data2
   real(kind=r_def), allocatable, dimension(:)     :: answer
-  real(kind=r_def), allocatable, dimension(:,:,:) :: op_data    
+  real(kind=r_def), allocatable, dimension(:,:,:) :: op_data, op_data_reordered
 
   real(kind=r_def), allocatable, dimension(:)     :: data1_snapshot
 
   type(dino_type) :: dino
 
   ! loop counters
-  integer(kind=i_def) :: i
+  integer(kind=i_def) :: i, j, k
 
   integer(kind=i_def) :: count
 
@@ -85,7 +85,7 @@ program lma_driver
 
   ! allocate the floating point data arrays
   allocate( data1(undf1), data2(undf2) )
-  allocate( op_data(ndf1,ndf2,ncell_3d) )
+  allocate( op_data(ndf1,ndf2,ncell_3d), op_data_reordered(ncell_3d, ndf1, ndf2) )
   allocate( answer(undf1) )
   allocate( data1_snapshot(undf1) )
 
@@ -138,11 +138,20 @@ program lma_driver
   end if
   call check_cell_order(tile_x, tile_y, cells_per_dimension, ncolours, ntiles_per_colour, cmap_tiled)
 
+  ! Reorder matrix to k-first storage order
+  do i = 1, ndf1
+     do j = 1, ndf2
+        do k = 1, ncell_3d
+           op_data_reordered(k,i,j) = op_data(i,j,k)
+        end do
+     end do
+  end do
+
   !$acc data copyin(ncells_per_colour, cmap, data1, data2, op_data, map1, map2)
   call system_clock(startclock, clockrate)
 
   call compute_loop_tiled(ncolours, tile_x, tile_y, ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
-       & ntiles_per_colour, cmap_tiled, map1, map2, data1, data2, op_data, data1_snapshot, colouring)
+       & ntiles_per_colour, cmap_tiled, map1, map2, data1, data2, op_data_reordered, data1_snapshot, colouring)
 
   call system_clock(stopclock, clockrate)
   timing = dble(stopclock - startclock)/dble(clockrate)
