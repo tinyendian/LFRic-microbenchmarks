@@ -3,179 +3,154 @@
 ! For further details please refer to the file LICENCE.original which you
 ! should have received as part of this distribution.
 !-----------------------------------------------------------------------------
-!
-!-------------------------------------------------------------------------------
 
 module matrix_vector_kernel_mod
-use argument_mod,            only : arg_type,                               &
-                                    GH_FIELD, GH_OPERATOR, GH_READ, GH_INC, &
-                                    ANY_SPACE_1, ANY_SPACE_2,               &
-                                    CELLS 
-use constants_mod,           only : r_def, i_def, l_def
-use kernel_mod,              only : kernel_type
+  use constants_mod,           only : i_def, r_single, r_double
 
-implicit none
+  implicit none
 
-!-------------------------------------------------------------------------------
-! Public types
-!-------------------------------------------------------------------------------
-
-type, public, extends(kernel_type) :: matrix_vector_kernel_type
   private
-  type(arg_type) :: meta_args(3) = (/                                  &
-       arg_type(GH_FIELD,    GH_INC,  ANY_SPACE_1),                    &  
-       arg_type(GH_FIELD,    GH_READ, ANY_SPACE_2),                    &
-       arg_type(GH_OPERATOR, GH_READ, ANY_SPACE_1, ANY_SPACE_2)        &
-       /)
-  integer :: iterates_over = CELLS
-contains
-  procedure, nopass ::matrix_vector_code
-end type
 
-!-------------------------------------------------------------------------------
-! Constructors
-!-------------------------------------------------------------------------------
+  !-------------------------------------------------------------------------------
+  ! Contained functions/subroutines
+  !-------------------------------------------------------------------------------
+  public :: matrix_vector_code
 
-! Overload the default structure constructor for function space
-interface matrix_vector_kernel_type
-   module procedure matrix_vector_kernel_constructor
-end interface
-
-!-------------------------------------------------------------------------------
-! Contained functions/subroutines
-!-------------------------------------------------------------------------------
-public matrix_vector_code
+  ! Generic interface for real32 and real64 types
+  interface matrix_vector_code
+    module procedure  &
+      matrix_vector_code_r_single, &
+      matrix_vector_code_r_double
+  end interface
 
 contains
 
-type(matrix_vector_kernel_type) function matrix_vector_kernel_constructor() result(self)
-  implicit none
-  return
-end function matrix_vector_kernel_constructor
+  !> @brief Computes lhs = matrix*x
+  !> @brief real32 and real64 variants
+  !! @param[in] cell Horizontal cell index
+  !! @param[in] nlayers Number of layers
+  !! @param[inout] lhs Output lhs (A*x)
+  !! @param[in] x Input data
+  !! @param[in] ncell_3d Total number of cells
+  !! @param[in] matrix Local matrix assembly form of the operator A
+  !! @param[in] ndf1 Number of degrees of freedom per cell for the output field
+  !! @param[in] undf1 Unique number of degrees of freedom  for the output field
+  !! @param[in] map1 Dofmap for the cell at the base of the column for the
+  !! output field
+  !! @param[in] ndf2 Number of degrees of freedom per cell for the input field
+  !! @param[in] undf2 Unique number of degrees of freedom for the input field
+  !! @param[in] map2 Dofmap for the cell at the base of the column for the input
+  !! field
 
-!> @brief Computes lhs = matrix*x
-!! @param[in] cell Horizontal cell index
-!! @param[in] nlayers Number of layers
-!! @param[inout] lhs Output lhs (A*x)
-!! @param[in] x Input data
-!! @param[in] ncell_3d Total number of cells
-!! @param[in] matrix Local matrix assembly form of the operator A 
-!! @param[in] ndf1 Number of degrees of freedom per cell for the output field
-!! @param[in] undf1 Unique number of degrees of freedom  for the output field
-!! @param[in] map1 Dofmap for the cell at the base of the column for the output field
-!! @param[in] ndf2 Number of degrees of freedom per cell for the input field
-!! @param[in] undf2 Unique number of degrees of freedom for the input field 
-!! @param[in] map2 Dofmap for the cell at the base of the column for the input field
-subroutine matrix_vector_code(cell,              &
-                              nlayers,           &
-                              lhs, x,            & 
-                              ncell_3d,          &
-                              matrix,            &
-                              ndf1, undf1, map1, &
-                              ndf2, undf2, map2, &
-                              atomic)
- 
-  implicit none
+  ! R_SINGLE PRECISION
+  ! ==================
+  subroutine matrix_vector_code_r_single(cell,              &
+                                         nlayers,           &
+                                         lhs, x,            &
+                                         ncell_3d,          &
+                                         matrix,            &
+                                         ndf1, undf1, map1, &
+                                         ndf2, undf2, map2)
+    !$acc routine vector
+    implicit none
 
-  ! Arguments
-  integer(kind=i_def),                  intent(in) :: cell, nlayers, ncell_3d
-  integer(kind=i_def),                  intent(in) :: undf1, ndf1
-  integer(kind=i_def),                  intent(in) :: undf2, ndf2
-  integer(kind=i_def), dimension(ndf1), intent(in) :: map1
-  integer(kind=i_def), dimension(ndf2), intent(in) :: map2
-  real(kind=r_def), dimension(undf2),              intent(in)    :: x
-  real(kind=r_def), dimension(undf1),              intent(inout) :: lhs
-  ! real(kind=r_def), dimension(ndf1,ndf2,ncell_3d), intent(in)    :: matrix
-  real(kind=r_def), dimension(ncell_3d,ndf1,ndf2), intent(in)    :: matrix  
-  ! real(kind=r_def), dimension(ncell_3d,ndf2,ndf1), intent(in)    :: matrix  
-  logical(kind=l_def), intent(in) :: atomic
+    ! Arguments
+    integer(kind=i_def),                  intent(in) :: cell, nlayers, ncell_3d
+    integer(kind=i_def),                  intent(in) :: undf1, ndf1
+    integer(kind=i_def),                  intent(in) :: undf2, ndf2
+    integer(kind=i_def), dimension(ndf1), intent(in) :: map1
+    integer(kind=i_def), dimension(ndf2), intent(in) :: map2
+    real(kind=r_single), dimension(undf2),              intent(in)    :: x
+    real(kind=r_single), dimension(undf1),              intent(inout) :: lhs
+    ! Ticket 3811
+    ! real(kind=r_single), dimension(ndf1,ndf2,ncell_3d), intent(in)    :: matrix
+    real(kind=r_single), dimension(ncell_3d,ndf1,ndf2), intent(in)    :: matrix
 
-  ! Internal variables
-  integer(kind=i_def)               :: df, k, ik , df2
-  real(kind=r_def), dimension(ndf2) :: x_e
-  real(kind=r_def), dimension(ndf1) :: lhs_e
+    ! Internal variables
+    ! Ticket 3811
+    ! integer(kind=i_def)                  :: df, k, ik
+    ! real(kind=r_single), dimension(ndf2) :: x_e
+    ! real(kind=r_single), dimension(ndf1) :: lhs_e
+    integer(kind=i_def)                  :: df, k, ik, df2
 
-  ! Optimisation
-  integer(kind=i_def) :: m1, m2
+    ! Ticket 3811
+    ! do k = 0, nlayers-1
+    !   do df = 1, ndf2
+    !     x_e(df) = x(map2(df)+k)
+    !   end do
+    !   ik = (cell-1)*nlayers + k + 1
+    !   lhs_e = matmul(matrix(:,:,ik),x_e)
+    !   do df = 1,ndf1
+    !     lhs(map1(df)+k) = lhs(map1(df)+k) + lhs_e(df)
+    !   end do
+    ! end do
 
-! This is the MatMul version which appears in the actuall application
-!  do k = 0, nlayers-1
-!     do df = 1, ndf2  
-!        x_e(df) = x(map2(df)+k)
-!     end do
-!     ik = (cell-1)*nlayers + k + 1
-!     lhs_e = matmul(matrix(:,:,ik),x_e)
-!     do df = 1,ndf1
-!        lhs(map1(df)+k) = lhs(map1(df)+k) + lhs_e(df) 
-!     end do
-!  end do
-
-! Here is the same code without matmul  
-  ! do k = 0, nlayers-1
-  !    ik = (cell-1)*nlayers+k+1
-  !  do df = 1,ndf1
-  !     do df2 = 1, ndf2
-  !        lhs(map1(df)+k) = lhs(map1(df)+k) + matrix(df,df2,ik)*x(map2(df2)+k)         
-  !        end do
-  !     end do
-  !  end do
-
-  if (atomic) then
-     ! Use atomics to prevent data races - this prevents vectorisation with Intel compiler
-     ik = (cell-1)*nlayers
-     do df = 1,ndf1
-        m1 = map1(df)
-        do df2 = 1, ndf2
-           m2 = map2(df2)
-           do k = 0, nlayers-1
-              !$OMP ATOMIC UPDATE
-              lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
-           end do
+    do df = 1,ndf1
+      do df2 = 1, ndf2
+        do k = 0, nlayers-1
+          ik = (cell-1)*nlayers+k+1
+          !$acc atomic update
+          lhs(map1(df)+k) = lhs(map1(df)+k) + matrix(ik,df,df2)*x(map2(df2)+k)
         end do
-     end do
-  else
-     ! Sergi's version (apart from loop running from 0 to nlayers-1)
-     ! ik = (cell-1)*nlayers
-     ! do df = 1,ndf1
-     !    m1 = map1(df)
-     !    do df2 = 1, ndf2
-     !       m2 = map2(df2)
-     !       !$OMP SIMD
-     !       do k = 0, nlayers-1
-     !          lhs(m1+k) = lhs(m1+k) + matrix(df,df2,ik+k+1)*x(m2+k)         
-     !       end do
-     !    end do
-     ! end do
+      end do
+    end do
 
-     ! k-first storage order, k-inner loop order
-     ik = (cell-1)*nlayers
-     do df2 = 1, ndf2
-        m2 = map2(df2)
-        do df = 1,ndf1
-           m1 = map1(df)
-           !$OMP SIMD
-           do k = 0, nlayers-1
-              lhs(m1+k) = lhs(m1+k) + matrix(ik+k+1,df,df2)*x(m2+k)
-           end do
+  end subroutine matrix_vector_code_r_single
+
+
+  ! R_DOUBLE PRECISION
+  ! ==================
+  subroutine matrix_vector_code_r_double(cell,              &
+                                         nlayers,           &
+                                         lhs, x,            &
+                                         ncell_3d,          &
+                                         matrix,            &
+                                         ndf1, undf1, map1, &
+                                         ndf2, undf2, map2)
+    !$acc routine vector
+    implicit none
+
+    ! Arguments
+    integer(kind=i_def),                  intent(in) :: cell, nlayers, ncell_3d
+    integer(kind=i_def),                  intent(in) :: undf1, ndf1
+    integer(kind=i_def),                  intent(in) :: undf2, ndf2
+    integer(kind=i_def), dimension(ndf1), intent(in) :: map1
+    integer(kind=i_def), dimension(ndf2), intent(in) :: map2
+    real(kind=r_double), dimension(undf2),              intent(in)    :: x
+    real(kind=r_double), dimension(undf1),              intent(inout) :: lhs
+    ! Ticket 3811
+    ! real(kind=r_double), dimension(ndf1,ndf2,ncell_3d), intent(in)    :: matrix
+    real(kind=r_double), dimension(ncell_3d,ndf1,ndf2), intent(in)    :: matrix
+
+    ! Internal variables
+    ! Ticket 3811
+    ! integer(kind=i_def)                  :: df, k, ik
+    ! real(kind=r_double), dimension(ndf2) :: x_e
+    ! real(kind=r_double), dimension(ndf1) :: lhs_e
+    integer(kind=i_def)                  :: df, k, ik, df2
+
+    ! Ticket 3811
+    ! do k = 0, nlayers-1
+    !   do df = 1, ndf2
+    !     x_e(df) = x(map2(df)+k)
+    !   end do
+    !   ik = (cell-1)*nlayers + k + 1
+    !   lhs_e = matmul(matrix(:,:,ik),x_e)
+    !   do df = 1,ndf1
+    !     lhs(map1(df)+k) = lhs(map1(df)+k) + lhs_e(df)
+    !   end do
+    ! end do
+
+    do df = 1,ndf1
+      do df2 = 1, ndf2
+        do k = 0, nlayers-1
+          ik = (cell-1)*nlayers+k+1
+          !$acc atomic update
+          lhs(map1(df)+k) = lhs(map1(df)+k) + matrix(ik,df,df2)*x(map2(df2)+k)
         end do
-     end do
+      end do
+    end do
 
-     ! k-first storage order, k-outer loop order
-     ! ik = (cell-1)*nlayers
-     ! !$OMP SIMD
-     ! do k = 0, nlayers-1
-     !    do df = 1,ndf1
-     !       m1 = map1(df)
-     !       do df2 = 1, ndf2
-     !          m2 = map2(df2)
-     !          lhs(m1+k) = lhs(m1+k) + matrix(ik+k+1,df2,df)*x(m2+k)
-     !       end do
-     !    end do
-     ! end do
-
-  end if
-
-
-end subroutine matrix_vector_code
+  end subroutine matrix_vector_code_r_double
 
 end module matrix_vector_kernel_mod

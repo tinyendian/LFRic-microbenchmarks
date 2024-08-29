@@ -4,48 +4,51 @@ module colourist_mod
 
 contains
 
-  subroutine compute_tiled_colour_map(tile_x, tile_y, ncells_per_dimension, colour_map, ncolours, &
+  subroutine compute_tiled_colour_map(tile_x, tile_y, ncells, colour_map, ncolours, &
        & ntiles_per_colour, colouring, write_maps)
     implicit none
-    integer(kind=i_def), intent(in) :: tile_x, tile_y, ncells_per_dimension
+    integer(kind=i_def), intent(in) :: tile_x, tile_y, ncells
     integer(kind=i_def), intent(out), allocatable :: colour_map(:,:,:)
     integer(kind=i_def), intent(out) :: ncolours, ntiles_per_colour
     logical(kind=l_def), intent(in) :: colouring, write_maps
     ! Local variables
-    integer(kind=i_def) :: cell, ncells, ncells_per_panel, panel_number, tile_number, tile
+    integer(kind=i_def) :: cell, ncells_per_dimension, ncells_per_panel, panel_number, tile_number, tile
     integer(kind=i_def) :: tile_id_in_panel, ntiles_per_panel
     integer(kind=i_def) :: ntiles_per_row, ntiles_per_column, row, column, colour
     integer(kind=i_def), allocatable :: counter(:)
-    integer(kind=i_def) :: cell_properties(6*ncells_per_dimension*ncells_per_dimension,3)
+    integer(kind=i_def) :: cell_properties(ncells,3)
 
-    ! Panel dimensions must be integer multiples of tile dimension
-    if (mod(ncells_per_dimension, tile_x) .ne. 0 .or. tile_x .gt. ncells_per_dimension) then
-       print *, 'Invalid tile_x'
+    ncells_per_dimension = int(sqrt(ncells/6.0))
+    if (ncells_per_dimension*ncells_per_dimension*6 /= ncells) then
+      write(*,'(A)') 'Only cubed-sphere is currently supported'
+      stop
+    end if
+
+    ! Panel dimensions must be integer multiples of tile dimension for simplicity - the
+    ! actual implementation allows for flexible tile sizes
+    if (tile_x < 1 .or. tile_x > ncells_per_dimension .or. mod(ncells_per_dimension, tile_x) /= 0 ) then
+       write(*, '(A)') 'Invalid tile_x'
        stop
     end if
-    if (mod(ncells_per_dimension, tile_y) .ne. 0 .or. tile_y .gt. ncells_per_dimension) then
-       print *, 'Invalid tile_y'
+    if (tile_y < 1 .or. tile_y > ncells_per_dimension .or. mod(ncells_per_dimension, tile_y) /= 0) then
+       write(*, '(A)') 'Invalid tile_y'
        stop
     end if
 
     ! Compute tiling configuration
     ncells_per_panel = ncells_per_dimension*ncells_per_dimension
-    ncells = 6*ncells_per_panel
     ntiles_per_row = ncells_per_dimension/tile_x
     ntiles_per_column = ncells_per_dimension/tile_y
     ntiles_per_panel = ntiles_per_row*ntiles_per_column
 
-    ! Set the number of colours according to what is required for the requested tiling configuration
-    ! Colour entire panels if no colouring is requested, to prevent full parallelisation over the entire
-    ! mesh, which could lead to an unfair comparison with the other setups
-    if ((.not. colouring) .or. (ntiles_per_row .eq. 1 .and. ntiles_per_column .eq. 1)) then
-       ncolours = 6
-    else if (ntiles_per_row .eq. 1 .or. ntiles_per_column .eq. 1) then
-       ncolours = 12
+    ! Set the number of colours depending on tiling configuration
+    if ((.not. colouring) .or. (ntiles_per_row == 1 .and. ntiles_per_column == 1)) then
+       ncolours = 1
+    else if (ntiles_per_row == 1 .or. ntiles_per_column == 1) then
+       ncolours = 2
     else
-       ncolours = 24
+       ncolours = 4
     end if
-    allocate(counter(ncolours))
 
     write(*,'(A)') 'Tiling configuration:'
     write(*,'(A,X,I7)') 'Cells:', ncells
@@ -54,22 +57,21 @@ contains
     write(*,'(A,X,I7)') 'Tiles per panel:', ntiles_per_panel
     write(*,'(A,X,I7)') 'Tiles per panel row:', ntiles_per_row
     write(*,'(A,X,I7)') 'Tiles per panel column:', ntiles_per_column
-    write(*,'(A,X,I7)') 'Colours:', ncolours
+    write(*,'(A,X,I7)') 'Number of colours:', ncolours
     if (colouring) then
-       write(*,'(A)') 'Running with colouring'
+       write(*,'(A)') 'Generating coloured tiles'
     else
-       write(*,'(A)') 'Running WITHOUT colouring (single colour per panel)'
+       write(*,'(A)') 'Generating non-coloured tiles'
     end if
-    write(*,'(A)') 'Computing tiled colour map...'
 
-    ! Loop over cells and assign tile numbers to each cell and colours to each tile
-    counter = 0
+    ! Loop over cells and assign tile number to each cell and colour to each tile
+    allocate(counter(ncolours), source=0_i_def)
     do cell = 1, ncells
 
        ! Cubed-sphere panel number, 1...6
        panel_number = (cell - 1) / ncells_per_panel + 1
 
-       if (panel_number .lt. 1 .or. panel_number .gt. 6) then
+       if (panel_number < 1 .or. panel_number > 6) then
           write(*,'(A,X,I3)') 'Invalid panel number', panel_number
           stop
        end if
@@ -80,7 +82,7 @@ contains
        ! Compute tile number relative to panel (starts from 1 in each panel)
        tile_id_in_panel = tile_number - (ntiles_per_panel * (panel_number-1))
 
-       if (tile_id_in_panel .lt. 1 .or. tile_id_in_panel .gt. ntiles_per_panel) then
+       if (tile_id_in_panel < 1 .or. tile_id_in_panel > ntiles_per_panel) then
           write(*,'(A,X,I9)') 'Invalid tile_id_in_panel', tile_id_in_panel
           stop
        end if
@@ -89,19 +91,19 @@ contains
        column = mod(tile_id_in_panel-1, ntiles_per_row) + 1
        row = (tile_id_in_panel-1)/ntiles_per_row + 1
 
-       ! Assign tile colour, each panel uses a different set of colours to avoid race conditions
-       if ((.not. colouring) .or. (ntiles_per_row .eq. 1 .and. ntiles_per_column .eq. 1)) then
-          colour = panel_number ! No tiling or no (in-panel) colouring - single colour per panel
-       else if (ntiles_per_row .eq. 1) then
-          colour = (panel_number-1)*2 + 1 + 1-mod(row,2) ! Row tiling - two colours per panel
-       else if (ntiles_per_column .eq. 1) then
-          colour = (panel_number-1)*2 + 1 + 1-mod(column,2) ! Column tiling - two colours per panel
+       ! Assign tile colour
+       if ((.not. colouring) .or. (ntiles_per_row == 1 .and. ntiles_per_column == 1)) then
+          colour = 1 ! No tiling or no colouring - single colour
+       else if (ntiles_per_row == 1) then
+          colour = 1 + 1-mod(row,2) ! Row tiling - two colours
+       else if (ntiles_per_column == 1) then
+          colour = 1 + 1-mod(column,2) ! Column tiling - two colours
        else
-          colour = (panel_number-1)*4 + 1 + 1-mod(column,2)+ 2*(1-mod(row,2)) ! Tiling - four colours per panel
+          colour = 1 + 1-mod(column,2)+ 2*(1-mod(row,2)) ! Full tiling - four colours
        end if
 
        ! Sanity check
-       if (colour .lt. 1 .or. colour .gt. ncolours) then
+       if (colour < 1 .or. colour > ncolours) then
           write(*,'(A)') 'Invalid colour'
           stop
        end if
@@ -125,12 +127,12 @@ contains
     ntiles_per_colour = counter(1)/(tile_x*tile_y)
 
     if (allocated(colour_map)) deallocate(colour_map)
-    allocate(colour_map(ncolours, ntiles_per_colour, tile_x*tile_y))
+    allocate(colour_map(ncolours, ntiles_per_colour, tile_x*tile_y), source=-1_i_def)
 
-    ! Loop over tiles and arrange cells contiguously per tile to improve cache utilisation
-    colour_map = -1
+    ! Build coloured tile map by looping over all tiles on the cubed-sphere and sorting
+    ! cells that belong to this tile contiguously by colour
     counter = 0
-    do tile_number = 1, 6*ntiles_per_panel
+    do tile_number = 1, ntiles_per_colour*ncolours
        do cell = 1, ncells
           if (cell_properties(cell, 2) .eq. tile_number) then
              colour = cell_properties(cell, 3)
@@ -142,8 +144,8 @@ contains
        end do
     end do
 
-    ! Sanity check
-    if (minval(colour_map) .lt. 1) then
+    ! Sanity checks
+    if (minval(colour_map) .lt. 1 .or. sum(counter) /= ncells) then
        write(*,'(A)') 'Colour map incomplete'
        stop
     end if
@@ -177,7 +179,7 @@ contains
     panel_number = (cellid - 1) / ncells_per_panel + 1
 
     if (panel_number .lt. 1 .or. panel_number .gt. 6) then
-       print *, 'Invalid panel number', panel_number
+       write(*, '(A,X,I3)') 'Invalid panel number', panel_number
        stop
     end if
 
@@ -185,7 +187,7 @@ contains
     cellid_in_panel = cellid - (ncells_per_panel * (panel_number - 1))
 
     if (cellid_in_panel .lt. 1 .or. cellid_in_panel .gt. ncells_per_panel) then
-       print *, 'Invalid cellid in panel', cellid_in_panel
+       write(*, '(A,X,I3)') 'Invalid cellid in panel', cellid_in_panel
        stop
     end if
 
@@ -194,10 +196,10 @@ contains
     row_in_panel    = (cellid_in_panel-1)/ncells_per_dimension + 1
 
     if (column_in_panel .lt. 1 .or. column_in_panel .gt. ncells_per_dimension) then
-       print *, 'Invalid column_in_panel', column_in_panel
+       write(*, '(A,X,I3)') 'Invalid column_in_panel', column_in_panel
        stop
     else if (row_in_panel .lt. 1 .or. row_in_panel .gt. ncells_per_dimension) then
-       print *, 'Invalid row_in_panel', row_in_panel
+       write(*, '(A,X,I3)') 'Invalid row_in_panel', row_in_panel
        stop
     end if
 
@@ -206,10 +208,10 @@ contains
     tile_row = (row_in_panel-1)/tile_y + 1
 
     if (tile_column .lt. 1 .or. tile_column .gt. ncells_per_dimension/tile_x) then
-       print *, 'Invalid tile_column', tile_column
+       write(*, '(A,X,I3)') 'Invalid tile_column', tile_column
        stop
     else if (tile_row .lt. 1 .or. tile_row .gt. ncells_per_dimension/tile_y) then
-       print *, 'Invalid tile_row', tile_row
+       write(*, '(A,X,I3)') 'Invalid tile_row', tile_row
        stop
     end if
 
@@ -222,7 +224,7 @@ contains
          & tile_column
 
     if (tile_number .lt. 1 .or. tile_number .gt. 6*ntiles_per_panel) then
-       print *, 'Invalid tile_number', tile_number
+       write(*, '(A,X,I3)') 'Invalid tile_number', tile_number
        stop
     end if
 
@@ -330,7 +332,7 @@ contains
     integer(kind=i_def), intent(in) :: dofmap(ndofs_per_cell,ncells)
     integer(kind=i_def), intent(in) :: colour_map(ncolours, ntiles_per_colour, tile_x*tile_y)
     ! Local variables
-    integer(kind=i_def) :: colour, cell, dof, nb_cell, nb_dof, cell_in_tile, tile
+    integer(kind=i_def) :: colour, cell, dof, nb_cell, nb_dof, cell_in_tile, tile, panel
     integer(kind=i_def) :: ncells_per_panel, ncells_per_tile, panel_number_1, panel_number_2, num_neighbours
     integer(kind=i_def) :: cell_colours(ncells), tile_number(ncells)
 
@@ -338,6 +340,21 @@ contains
 
     ncells_per_panel = ncells_per_dimension*ncells_per_dimension
     ncells_per_tile = tile_x*tile_y
+
+    ! Check that tiling array is ordered by panel, so that loops can be easily split over panels
+    do panel = 1, 6
+      do colour = 1, ncolours
+        do tile = (panel-1)*ntiles_per_colour/6+1, panel*ntiles_per_colour/6
+          do cell_in_tile = 1, ncells_per_tile
+            cell = colour_map(colour, tile, cell_in_tile)
+            if ( ( (cell - 1) / ncells_per_panel + 1 ) /= panel ) then
+              write(*, '(A)') 'Tiles are not ordered by panels'
+              stop
+            end if
+          end do
+        end do
+      end do
+    end do
 
     ! Look up colour for each cell
     cell_colours = -1
@@ -362,46 +379,46 @@ contains
     ! Loop over all DOFs in all cells, identify neighbours with shared DOFs, and compare colours
     ! cells are not in the same tile
     num_neighbours = 0
-    !$omp parallel do default(shared) private(cell, nb_cell, dof, nb_dof, panel_number_1, panel_number_2) &
-    !$omp & reduction(+:num_neighbours)
-    do cell = 1, ncells
-       do nb_cell = 1, ncells
+    do panel = 1, 6
+      !$omp parallel do default(shared) private(cell, nb_cell, dof, nb_dof, panel_number_1, panel_number_2) &
+      !$omp & reduction(+:num_neighbours)
+      do cell = (panel-1)*ncells/6+1, panel*ncells/6
+        do nb_cell = (panel-1)*ncells/6+1, panel*ncells/6
 
-          if (nb_cell .ne. cell) then
+          if (nb_cell /= cell) then
 
-             ! If cells belong to the same tile, their colours must be the same
-             if (tile_number(nb_cell) .eq. tile_number(cell) .and. cell_colours(nb_cell) .ne. cell_colours(cell)) then
-                write(*,'(A)') 'Inconsistent colours in the same tile'
-                stop
-             end if
+            ! If cells belong to the same tile, their colours must be the same
+            if (tile_number(nb_cell) == tile_number(cell) .and. &
+                 cell_colours(nb_cell) /= cell_colours(cell)) then
+              write(*,'(A)') 'Inconsistent colours in the same tile'
+              stop
+            end if
 
-             do dof = 1, ndofs_per_cell
-                do nb_dof = 1, ndofs_per_cell
+            do dof = 1, ndofs_per_cell
+              do nb_dof = 1, ndofs_per_cell
 
-                   ! If cells share the same DOF, they are neighbours
-                   if ( dofmap(nb_dof, nb_cell) .eq. dofmap(dof, cell)) then
+                ! If cells share the same DOF, they are neighbours
+                if ( dofmap(nb_dof, nb_cell) == dofmap(dof, cell)) then
 
-                      num_neighbours = num_neighbours + 1
+                  num_neighbours = num_neighbours + 1
+                  
+                  ! Flag neighbour cells that have the same colour, but don't belong to the same tile
+                  if (ncolours > 1 .and. &
+                      tile_number(nb_cell) /= tile_number(cell) .and. &
+                      cell_colours(nb_cell) == cell_colours(cell)) then
+                    write(*, '(A,X,I6,X,I6,X)') 'Neighbour cells with same colour:', cell, nb_cell
+                  end if
 
-                      ! Flag neighbour cells that have the same colour, but don't belong to the same tile
-                      if (tile_number(nb_cell) .ne. tile_number(cell) .and. &
-                           & cell_colours(nb_cell) .eq. cell_colours(cell)) then
-                         ! Cubed-sphere panel number, 1...6
-                         panel_number_1 = (cell - 1) / ncells_per_panel + 1
-                         panel_number_2 = (nb_cell - 1) / ncells_per_panel + 1
-                         write(*, '(2(A,X,I6,X,I6,X))') 'Neighbour cells with same colour:', cell, nb_cell, &
-                              & ' panels ', panel_number_1, panel_number_2
-                      end if
-
-                   end if
-                end do
-             end do
+                end if
+              end do
+            end do
 
           end if
 
-       end do
+        end do
+      end do
+      !$omp end parallel do
     end do
-    !$omp end parallel do
 
     write(*, '(A,X,F4.1,X,A)') 'Cells share ', real(num_neighbours)/real(ncells), ' DOFs on average'
     write(*,'(A)') 'Cell colouring check done.'

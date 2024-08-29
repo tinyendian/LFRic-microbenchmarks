@@ -9,17 +9,20 @@ module compare_mod
   implicit none
 contains
 
-  function compare(data1, data2, ndata, print_me) result(count)
+  function compare(data1, data2, ndata, print_me, threshold) result(count)
     implicit none
     integer(kind=i_def),                intent(in) :: ndata
     real(kind=r_def), dimension(ndata), intent(in) :: data1
     real(kind=r_def), dimension(ndata), intent(in) :: data2
     logical(kind=l_def),                intent(in) :: print_me
+    real(kind=r_def), optional,         intent(in) :: threshold
 
     integer(kind=i_def) :: count
     integer(kind=i_def) :: df
     real(kind=r_def) :: eps = 1.0e-014
     real(kind=r_def) :: diff
+
+    if (present(threshold)) eps = threshold
 
     count=0
     do df = 1, ndata
