@@ -58,11 +58,12 @@ tar:
 # dependencies
 constants_mod.o:
 dino_mod.o: constants_mod.o
+read_input_file_mod.o: constants_mod.o dino_mod.o
 compare_mod.o: constants_mod.o
 argument_mod.o: 
 kernel_mod.o:
 colourist_mod.o: constants_mod.o
 matrix_vector_kernel_mod.o: constants_mod.o argument_mod.o kernel_mod.o
 compute_loop_mod.o : constants_mod.o matrix_vector_kernel_mod.o
-lma_driver.o: constants_mod.o dino_mod.o compute_loop_mod.o compare_mod.o colourist_mod.o
-lma_driver: lma_driver.o constants_mod.o argument_mod.o dino_mod.o kernel_mod.o compute_loop_mod.o matrix_vector_kernel_mod.o compare_mod.o colourist_mod.o
+lma_driver.o: constants_mod.o read_input_file_mod.o compute_loop_mod.o compare_mod.o colourist_mod.o
+lma_driver: lma_driver.o constants_mod.o argument_mod.o dino_mod.o read_input_file_mod.o kernel_mod.o compute_loop_mod.o matrix_vector_kernel_mod.o compare_mod.o colourist_mod.o

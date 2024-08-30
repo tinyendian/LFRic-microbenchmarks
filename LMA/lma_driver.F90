@@ -6,7 +6,7 @@
 
 program lma_driver
   use constants_mod, only: r_def, i_def, l_def
-  use dino_mod, only : dino_type
+  use read_input_file_mod, only: read_dinodump_file, read_binary_file
   use compare_mod, only : compare
   use colourist_mod, only: compute_tiled_colour_map, reorder_data, &
        check_cell_order, check_tile_colouring
@@ -41,8 +41,6 @@ program lma_driver
   ! Copy of output for comparison with KGO
   real(kind=r_def), allocatable, dimension(:)     :: data1_snapshot
 
-  type(dino_type) :: dino
-
   ! loop counters
   integer(kind=i_def) :: i, j
 
@@ -59,62 +57,8 @@ program lma_driver
   logical(kind=l_def) :: write_cell_props = .false., reorder_fields = .false.
   logical(kind=l_def) :: tiling = .false.
   logical(kind=l_def) :: colouring = .false.
+  logical(kind=l_def) :: binary = .false.
   character(len=256) :: arg
-
-  ! Read data file - file format is simple sequential ASCII
-
-  write(*,'(A)') 'Loading input data...'
-
-  ! make the reader
-  dino = dino_type()    
-
-  !ingest the data
-  call dino%input_scalar(ncell)
-  call dino%input_scalar(ncell_3d)
-  call dino%input_scalar(ncolours)
-  call dino%input_scalar(nlayers)
-
-  ! allocate the colour arrays
-  allocate(ncells_per_colour(ncolours))
-  call dino%input_array(ncells_per_colour,ncolours)
-  allocate( cmap(ncolours,maxval(ncells_per_colour)) )
-  call dino%input_array(cmap,ncolours,maxval(ncells_per_colour))
-
-  ! read space sizes and allocate arrays
-  call dino%input_scalar(ndf1)
-  call dino%input_scalar(undf1)
-  allocate(map1(ndf1,ncell))
-  call dino%input_array(map1,ndf1, ncell)
-  
-  call dino%input_scalar(ndf2)
-  call dino%input_scalar(undf2)
-  allocate(map2(ndf2,ncell))
-  call dino%input_array(map2,ndf2, ncell)
-
-  ! allocate the floating point data arrays
-  allocate( data1(undf1), data2(undf2) )
-  allocate( op_data(ndf1,ndf2,ncell_3d) )
-  allocate( answer(undf1) )
-  allocate( data1_snapshot(undf1) )
-
-  ! read the floating point data
-  call dino%input_array(op_data, ndf1, ndf2, ncell_3d)  
-  call dino%input_array(data1, undf1)
-  call dino%input_array(data2, undf2)
-  call dino%input_array(answer, undf1)
-
-  call dino%io_close()
-
-  ! Reorder matrix to k-first storage order (Ticket 3811)
-  allocate(op_data_transposed, source=reshape(transpose(reshape(op_data, (/ndf1*ndf2, ncell_3d/))), &
-                                              (/ncell_3d, ndf1, ndf2/)))
-
-  deallocate(op_data)
-  allocate(op_data, source=op_data_transposed)
-  deallocate(op_data_transposed)
-
-  write(*,'(A,5(X,A,I10))') "lma_driver: ingested dinodump", "ndf1=", ndf1, "ndf2=", ndf2, &
-       "undf1=", undf1, "undf2=", undf2, "nlayers=", nlayers
 
   ! CLI
   do i = 1, command_argument_count()
@@ -132,8 +76,35 @@ program lma_driver
            reorder_fields = .true.
         case ('-c', '--colouring')
            colouring = .true.
+        case ('-b', '--binary')
+           binary = .true.
      end select
   end do
+
+  ! Read data file
+  if (binary) then
+    write(*,'(A)') 'Loading input data from binary file...'
+
+    call read_binary_file(ncell, ncell_3d, ncolours, nlayers, ncells_per_colour, cmap, ndf1, undf1, &
+         map1, ndf2, undf2, map2, data1, data2, op_data, answer)
+
+  else
+    write(*,'(A)') 'Loading input data from dinodump file...'
+
+    call read_dinodump_file(ncell, ncell_3d, ncolours, nlayers, ncells_per_colour, cmap, ndf1, undf1, &
+         map1, ndf2, undf2, map2, data1, data2, op_data, answer)
+  end if
+
+  ! Reorder matrix to k-first storage order (Ticket 3811)
+  allocate(op_data_transposed, source=reshape(transpose(reshape(op_data, (/ndf1*ndf2, ncell_3d/))), &
+                                              (/ncell_3d, ndf1, ndf2/)))
+
+  deallocate(op_data)
+  allocate(op_data, source=op_data_transposed)
+  deallocate(op_data_transposed)
+
+  write(*,'(A,6(X,A,I10))') "lma_driver: ingested dinodump", "ndf1=", ndf1, "ndf2=", ndf2, &
+       "undf1=", undf1, "undf2=", undf2, "nlayers=", nlayers, "ncell=", ncell
 
   if (colouring) then
     write(*,'(A)') 'Using colouring'
@@ -176,6 +147,8 @@ program lma_driver
   !         & map1, data1, answer)
   ! end if
   ! call check_cell_order(tile_x, tile_y, cells_per_dimension, ncolours, ntiles_per_colour, cmap_tiled)
+
+  allocate( data1_snapshot(undf1) )
 
   ! Call the compute loops and measure timings, with or without tiling
   ! Use explicit OpenACC data transfer directives here to ensure that timings only include GPU compute
