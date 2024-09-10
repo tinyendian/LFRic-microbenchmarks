@@ -11,6 +11,7 @@ program lma_driver
   use colourist_mod, only: compute_tiled_colour_map, reorder_data, &
        check_cell_order, check_tile_colouring
   use compute_loop_mod, only: &
+       invoke_matrix_vector_kernel, &
        invoke_matrix_vector_kernel_coloured, &
        invoke_matrix_vector_kernel_coloured_tiled
   implicit none
@@ -54,10 +55,14 @@ program lma_driver
   real(kind=8) :: timing
 
   ! CLI
-  logical(kind=l_def) :: write_cell_props = .false., reorder_fields = .false.
+  logical(kind=l_def) :: write_cell_props = .false.
+  logical(kind=l_def) :: reorder_fields = .false.
   logical(kind=l_def) :: tiling = .false.
   logical(kind=l_def) :: colouring = .false.
   logical(kind=l_def) :: binary = .false.
+  logical(kind=l_def) :: check = .false.
+  logical(kind=l_def) :: inline = .false.
+  integer(kind=i_def) :: ntimes = 1000
   character(len=256) :: arg
 
   ! CLI
@@ -78,6 +83,13 @@ program lma_driver
            colouring = .true.
         case ('-b', '--binary')
            binary = .true.
+        case ('-C', '--check')
+           check = .true.
+        case ('-i', '--inline')
+           inline = .true.
+        case ('-n', '--ntimes')
+           call get_command_argument(i+1, arg)
+           read(arg,*) ntimes
      end select
   end do
 
@@ -132,8 +144,10 @@ program lma_driver
     write(*,'(A)') 'Using tiling'
     call compute_tiled_colour_map(tile_x, tile_y, ncell, tmap, ncolours, ntiles_per_colour, &
          & colouring, write_cell_props)
-    call check_tile_colouring(tile_x, tile_y, int(sqrt(ncell/6.0)), ncell, ndf1, map1, ncolours, &
-         ntiles_per_colour, tmap)
+    if (check) then
+      call check_tile_colouring(tile_x, tile_y, int(sqrt(ncell/6.0)), ncell, ndf1, map1, ncolours, &
+           ntiles_per_colour, tmap)
+    end if
   else
     write(*,'(A)') 'Not using tiling'
   end if
@@ -157,20 +171,29 @@ program lma_driver
     call system_clock(startclock, clockrate)
 
     call invoke_matrix_vector_kernel_coloured_tiled(ncolours, ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
-         & ntiles_per_colour, tile_x*tile_y, tmap, map1, map2, data1, data2, op_data, data1_snapshot)
+         ntiles_per_colour, tile_x*tile_y, tmap, map1, map2, data1, data2, op_data, data1_snapshot, &
+         inline, ntimes)
 
     call system_clock(stopclock, clockrate)
     !$acc end data
-  else
+  else if (colouring) then
     !$acc data copyin(ncells_per_colour, cmap, data1, data2, op_data, map1, map2)
     call system_clock(startclock, clockrate)
 
     call invoke_matrix_vector_kernel_coloured(ncolours, ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
-         & ncells_per_colour, cmap, map1, map2, data1, data2, op_data, data1_snapshot)
+         ncells_per_colour, cmap, map1, map2, data1, data2, op_data, data1_snapshot, inline, ntimes)
 
     call system_clock(stopclock, clockrate)
     !$acc end data
+  else
+    !$acc data copyin(data1, data2, op_data, map1, map2)
+    call system_clock(startclock, clockrate)
 
+    call invoke_matrix_vector_kernel(ncell_3d, nlayers, ndf1, undf1, ndf2, undf2, &
+         map1, map2, data1, data2, op_data, data1_snapshot, inline, ntimes)
+
+    call system_clock(stopclock, clockrate)
+    !$acc end data
   end if
 
   timing = dble(stopclock - startclock)/dble(clockrate)
