@@ -13,7 +13,8 @@ program lma_driver
   use compute_loop_mod, only: &
        invoke_matrix_vector_kernel, &
        invoke_matrix_vector_kernel_coloured, &
-       invoke_matrix_vector_kernel_coloured_tiled
+       invoke_matrix_vector_kernel_coloured_tiled, &
+       invoke_matrix_vector_kernel_coloured_tiled_vert
   implicit none
 
   ! mesh sizes
@@ -49,6 +50,8 @@ program lma_driver
 
   ! Tiling
   integer(kind=i_def) :: tile_x = 1, tile_y = 1
+  integer(kind=i_def), allocatable :: tile(:), kstart(:), kstop(:)
+  integer(kind=i_def) :: ntiles, nksections, nblocks, ksectionlength, ksection
 
   ! Timing
   integer(kind=8) :: startclock, stopclock, clockrate
@@ -62,6 +65,7 @@ program lma_driver
   logical(kind=l_def) :: binary = .false.
   logical(kind=l_def) :: check = .false.
   logical(kind=l_def) :: inline = .false.
+  logical(kind=l_def) :: vertical_tiling = .false.
   integer(kind=i_def) :: ntimes = 1000
   character(len=256) :: arg
 
@@ -90,8 +94,14 @@ program lma_driver
         case ('-n', '--ntimes')
            call get_command_argument(i+1, arg)
            read(arg,*) ntimes
+        case ('-v', '--vertical')
+           vertical_tiling = .true.
      end select
   end do
+  if (vertical_tiling .and. .not. tiling) then
+    write(*, '(A)') 'Vertical tiling requires (horizontal) tiling'
+    stop
+  end if
 
   ! Read data file
   if (binary) then
@@ -166,7 +176,49 @@ program lma_driver
 
   ! Call the compute loops and measure timings, with or without tiling
   ! Use explicit OpenACC data transfer directives here to ensure that timings only include GPU compute
-  if (tiling) then
+  if (vertical_tiling) then
+
+    ! Set up vertical tiling, dividing the vertical axis into the same number of sections as there are cells per tile
+    ! to keep the number of total number of work items = tiles*sections constant
+    ntiles = ntiles_per_colour/6
+    nksections = tile_x*tile_y
+    nblocks = ntiles*nksections
+    ksectionlength = nlayers/nksections
+    if (ksectionlength < 1) then
+      write(*,'(A)') 'ERROR - too many vertical sections'
+      stop
+    end if
+    write(*,'(3(A,X,I3,X),A)') 'Vertical tiling: using', nksections, 'vertical sections of >=', ksectionlength, &
+         'layers for a total of', nblocks, '3D blocks'
+
+    ! Set up look-up arrays
+    allocate(tile(nblocks))
+    allocate(kstart(nblocks))
+    allocate(kstop(nblocks))
+
+    ! Work out horizontal tile number and vertical k section from block number
+    do i = 1, nblocks
+      tile(i) = mod(i-1, ntiles)
+
+      ksection = (i-1)/ntiles
+      kstart(i) = ksection*ksectionlength
+      kstop(i) = kstart(i) + ksectionlength-1
+      if (ksection == (nksections-1)) kstop(i) = nlayers-1
+    end do
+
+    !$acc data copyin(ntiles_per_colour, tmap, tile, kstart, kstop, data1, data2, op_data, map1, map2)
+    call system_clock(startclock, clockrate)
+
+    call invoke_matrix_vector_kernel_coloured_tiled_vert(ncolours,nlayers, ndf1, ndf2, &
+         ntiles_per_colour, tile_x*tile_y, tmap, tile, kstart, kstop, nblocks, map1, map2, data1, data2, op_data, data1_snapshot, &
+         inline, ntimes)
+
+    call system_clock(stopclock, clockrate)
+    !$acc end data
+
+    deallocate(tile, kstart, kstop)
+
+  else if (tiling) then
     !$acc data copyin(ntiles_per_colour, tmap, data1, data2, op_data, map1, map2)
     call system_clock(startclock, clockrate)
 

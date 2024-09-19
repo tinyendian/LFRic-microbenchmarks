@@ -203,8 +203,8 @@ contains
 
     do count = 1, ntimes
       do panel = 1, 6
-          first_tile = (panel-1)*ntiles_per_colour/6+1
-          last_tile = panel*ntiles_per_colour/6
+        first_tile = (panel-1)*ntiles_per_colour/6+1
+        last_tile = panel*ntiles_per_colour/6
 
         do colour = 1, ncolours
 
@@ -271,5 +271,73 @@ contains
     end do
 
   end subroutine invoke_matrix_vector_kernel_coloured_tiled
+
+  subroutine invoke_matrix_vector_kernel_coloured_tiled_vert(ncolours, nlayers, ndf1, ndf2, &
+       ntiles_per_colour, ncells_per_tile, tmap, tile, kstart, kstop, nblocks, map1, map2, data1, data2, op_data, data1_snapshot, inline, ntimes)
+
+    implicit none
+
+    integer(kind=i_def), intent(in) :: ncolours, nlayers, ndf1, ndf2
+    integer(kind=i_def), intent(in) :: ntiles_per_colour, ncells_per_tile, tmap(:,:,:), map1(:,:), map2(:,:)
+    integer(kind=i_def), intent(in) :: tile(:), kstart(:), kstop(:), nblocks
+    real(kind=r_def), intent(in) :: op_data(:,:,:), data2(:)
+    real(kind=r_def), intent(inout) :: data1(:)
+    real(kind=r_def), intent(out) :: data1_snapshot(:)
+    logical(kind=l_def), intent(in) :: inline
+    integer(kind=i_def), intent(in) :: ntimes
+
+    integer(kind=i_def) :: count, panel, colour, cell, first_tile
+
+    ! Inlined kernel
+    integer(kind=i_def) :: cell_number, df, k, ik, df2
+
+    ! Vertical tiling
+    integer(kind=i_def) :: iblock
+
+    if (inline) then
+      write(*,'(A,X,I4,X,A)') 'Running invoke_matrix_vector_kernel_coloured_tiled_vert', ntimes, 'times - inlined'
+    else
+      write(*,'(A,X,I4,X,A)') 'invoke_matrix_vector_kernel_coloured_tiled_vert: only inlined variant is available'
+      stop
+    end if
+
+    do count = 1, ntimes
+      do panel = 1, 6
+        first_tile = (panel-1)*ntiles_per_colour/6+1
+        do colour = 1, ncolours
+
+          !$acc parallel present(tile, kstart, kstop, tmap, map1, map2, data1, data2, op_data) &
+          !$acc default(none) firstprivate(first_tile, cell_number, ncells_per_tile, df) &
+          !$acc firstprivate(ndf1, df2, ndf2, k, nlayers, ik, colour, cell, nblocks) &
+          !$acc vector_length(128)
+
+          ! Outer loop over 3D blocks (2D tiles + 1D sections)
+          !$acc loop gang
+          do iblock = 1, nblocks
+            do cell_number = 1, ncells_per_tile
+              cell = tmap(colour, first_tile + tile(iblock), cell_number)
+              !$acc loop vector
+              do k = kstart(iblock), kstop(iblock)
+                ik = (cell-1)*nlayers+k+1
+                do df2 = 1, ndf2
+                  do df = 1,ndf1
+                    !$acc atomic update
+                    data1(map1(df, cell)+k) = data1(map1(df, cell)+k) + op_data(ik,df,df2)*data2(map2(df2, cell)+k)
+                  end do
+                end do
+              end do
+            end do
+          end do
+          !$acc end parallel
+        end do
+      end do
+
+      if (count.eq.1) then
+        !$acc update host(data1)
+        data1_snapshot = data1
+      end if
+    end do
+
+  end subroutine invoke_matrix_vector_kernel_coloured_tiled_vert
 
 end module compute_loop_mod
