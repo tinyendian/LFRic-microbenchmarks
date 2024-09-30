@@ -27,13 +27,13 @@ else ifeq ("$(COMPILER)","nvfortran-skl")
 else ifeq ("$(COMPILER)","nvfortran-p100")
   FC=nvfortran
   DEBUGFLAGS= -g
-  FFLAGS=-O2 -Minfo=accel -acc -gpu=cc60
-  LDFLAGS=-O2 -Minfo=accel -acc -gpu=cc60
+  FFLAGS=-O3 -Minfo=accel -acc -gpu=cc60
+  LDFLAGS=-O3 -Minfo=accel -acc -gpu=cc60
 else ifeq ("$(COMPILER)","nvfortran-a100")
   FC=nvfortran
   DEBUGFLAGS=-g
-  FFLAGS=-O2 -march=x86-64-v3 -Minfo=accel -acc -gpu=cc80
-  LDFLAGS=-O2 -march=x86-64-v3 -Minfo=accel -acc -gpu=cc80
+  FFLAGS=-O3 -march=x86-64-v3 -Minfo=accel -acc -gpu=cc80
+  LDFLAGS=-O3 -march=x86-64-v3 -Minfo=accel -acc -gpu=cc80
 else ifneq ("$(MAKECMDGOALS)","clean")
   $(error Variable COMPILER not set, or unknown compiler)
 endif

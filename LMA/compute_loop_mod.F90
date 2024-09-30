@@ -45,10 +45,10 @@ contains
           !$acc default(none) firstprivate(first_cell, last_cell, df, ndf1, df2, ndf2, k, nlayers, ik)
           !$acc loop
           do cell = first_cell, last_cell
-            do k = 0, nlayers-1
-              ik = (cell-1)*nlayers+k+1
-              do df2 = 1, ndf2
-                do df = 1,ndf1
+            do df2 = 1, ndf2
+              do df = 1,ndf1
+                do k = 0, nlayers-1
+                  ik = (cell-1)*nlayers+k+1
                   !$acc atomic update
                   data1(map1(df, cell)+k) = data1(map1(df, cell)+k) + op_data(ik,df,df2)*data2(map2(df2, cell)+k)
                 end do
@@ -120,10 +120,10 @@ contains
             !$acc loop
             do cell_number = first_cell, last_cell
               cell = cmap(colour, cell_number)
-              do k = 0, nlayers-1
-                ik = (cell-1)*nlayers+k+1
-                do df2 = 1, ndf2
-                  do df = 1,ndf1
+              do df2 = 1, ndf2
+                do df = 1,ndf1
+                  do k = 0, nlayers-1
+                    ik = (cell-1)*nlayers+k+1
                     !$acc atomic update
                     data1(map1(df, cell)+k) = data1(map1(df, cell)+k) + op_data(ik,df,df2)*data2(map2(df2, cell)+k)
                   end do
@@ -212,14 +212,14 @@ contains
             !$acc parallel present(tmap, map1, map2, data1, data2, op_data) &
             !$acc default(none) firstprivate(last_tile, first_tile, cell_number, ncells_per_tile, df) &
             !$acc firstprivate(ndf1, df2, ndf2, k, nlayers, ik, colour, cell)
+            !$acc loop
             do tile = first_tile, last_tile
-              !$acc loop
               do cell_number = 1, ncells_per_tile
                 cell = tmap(colour, tile, cell_number)
-                do k = 0, nlayers-1
-                  ik = (cell-1)*nlayers+k+1
-                  do df2 = 1, ndf2
-                    do df = 1,ndf1
+                do df2 = 1, ndf2
+                  do df = 1,ndf1
+                    do k = 0, nlayers-1
+                      ik = (cell-1)*nlayers+k+1
                       !$acc atomic update
                       data1(map1(df, cell)+k) = data1(map1(df, cell)+k) + op_data(ik,df,df2)*data2(map2(df2, cell)+k)
                     end do
@@ -248,8 +248,8 @@ contains
 
             ! Tile numbers are global across all 6 cubed-sphere panels
             !$omp do schedule(static)
+            !$acc loop
             do tile = first_tile, last_tile
-              !$acc loop
               do cell = 1, ncells_per_tile
                 call matrix_vector_code(tmap(colour, tile, cell), nlayers, data1, data2, &
                      ncell_3d, op_data, ndf1, undf1, map1(:, tmap(colour, tile, cell)), &
@@ -316,11 +316,10 @@ contains
           do iblock = 1, nblocks
             do cell_number = 1, ncells_per_tile
               cell = tmap(colour, first_tile + tile(iblock), cell_number)
-              !$acc loop vector
-              do k = kstart(iblock), kstop(iblock)
-                ik = (cell-1)*nlayers+k+1
-                do df2 = 1, ndf2
-                  do df = 1,ndf1
+              do df2 = 1, ndf2
+                do df = 1,ndf1
+                  do k = kstart(iblock), kstop(iblock)
+                    ik = (cell-1)*nlayers+k+1
                     !$acc atomic update
                     data1(map1(df, cell)+k) = data1(map1(df, cell)+k) + op_data(ik,df,df2)*data2(map2(df2, cell)+k)
                   end do
