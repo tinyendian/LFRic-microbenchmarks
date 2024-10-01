@@ -188,7 +188,7 @@ program lma_driver
       write(*,'(A)') 'ERROR - too many vertical sections'
       stop
     end if
-    write(*,'(3(A,X,I3,X),A)') 'Vertical tiling: using', nksections, 'vertical sections of >=', ksectionlength, &
+    write(*,'(3(A,X,I5,X),A)') 'Vertical tiling: using', nksections, 'vertical sections of >=', ksectionlength, &
          'layers for a total of', nblocks, '3D blocks'
 
     ! Set up look-up arrays
