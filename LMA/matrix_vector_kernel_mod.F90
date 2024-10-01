@@ -85,8 +85,8 @@ contains
     !   end do
     ! end do
 
-    do df = 1,ndf1
-      do df2 = 1, ndf2
+    do df2 = 1, ndf2
+      do df = 1,ndf1
         do k = 0, nlayers-1
           ik = (cell-1)*nlayers+k+1
           !$acc atomic update
@@ -141,8 +141,8 @@ contains
     !   end do
     ! end do
 
-    do df = 1,ndf1
-      do df2 = 1, ndf2
+    do df2 = 1, ndf2
+      do df = 1,ndf1
         do k = 0, nlayers-1
           ik = (cell-1)*nlayers+k+1
           !$acc atomic update
