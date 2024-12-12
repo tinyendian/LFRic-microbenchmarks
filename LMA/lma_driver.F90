@@ -28,24 +28,24 @@ program lma_driver
 
   ! dof-maps for space 1
   integer(kind=i_def) :: ndf1, undf1
-  integer(kind=i_def), allocatable, dimension(:,:) :: map1
+  integer(kind=i_def), allocatable, dimension(:,:) :: map1, map1_tmp
 
   ! dof-maps for space 2
   integer(kind=i_def) :: ndf2, undf2
-  integer(kind=i_def), allocatable, dimension(:,:) :: map2
+  integer(kind=i_def), allocatable, dimension(:,:) :: map2, map2_tmp
   
   ! the data
   real(kind=r_def), allocatable, dimension(:)     :: data1
   real(kind=r_def), allocatable, dimension(:)     :: data2
   real(kind=r_def), allocatable, dimension(:)     :: answer
-  real(kind=r_def), allocatable, dimension(:,:,:) :: op_data, op_data_transposed
+  real(kind=r_def), allocatable, dimension(:,:,:) :: op_data, op_data_transposed, op_data_tmp
 
   ! Copy of output for comparison with KGO
   real(kind=r_def), allocatable, dimension(:)     :: data1_snapshot
 
   ! loop counters
   integer(kind=i_def) :: i, j
-
+  integer(kind=i_def) :: colour, tile_number, cell_number, cell
   integer(kind=i_def) :: count
 
   ! Tiling
@@ -66,6 +66,7 @@ program lma_driver
   logical(kind=l_def) :: check = .false.
   logical(kind=l_def) :: inline = .false.
   logical(kind=l_def) :: vertical_tiling = .false.
+  logical(kind=l_def) :: direct_tiling = .false.
   integer(kind=i_def) :: ntimes = 1000
   character(len=256) :: arg
 
@@ -96,6 +97,8 @@ program lma_driver
            read(arg,*) ntimes
         case ('-v', '--vertical')
            vertical_tiling = .true.
+        case ('-d', '--direct')
+           direct_tiling = .true.
      end select
   end do
   if (vertical_tiling .and. .not. tiling) then
@@ -158,6 +161,30 @@ program lma_driver
       call check_tile_colouring(tile_x, tile_y, int(sqrt(ncell/6.0)), ncell, ndf1, map1, ncolours, &
            ntiles_per_colour, tmap)
     end if
+
+    ! Reorder DOF maps and operator matrices according to tile order
+    if (direct_tiling) then
+      write(*,'(A)') 'Applying direct tiling'
+      allocate(map1_tmp, source=map1)
+      allocate(map2_tmp, source=map2)
+      allocate(op_data_tmp, source=op_data)
+      count = 1
+      do tile_number = 1, ntiles_per_colour
+        do colour = 1, ncolours
+          do cell_number = 1, tile_x*tile_y
+            cell = tmap(colour, tile_number, cell_number)
+            map1_tmp(:, count) = map1(:, cell)
+            map2_tmp(:, count) = map2(:, cell)
+            op_data_tmp((count-1)*nlayers+1:count*nlayers, :, :) = op_data((cell-1)*nlayers+1:cell*nlayers, :, :)
+            count = count + 1
+          end do
+        end do
+      end do
+      map1 = map1_tmp
+      map2 = map2_tmp
+      op_data = op_data_tmp
+      deallocate(map1_tmp, map2_tmp, op_data_tmp)
+    end if
   else
     write(*,'(A)') 'Not using tiling'
   end if
@@ -218,7 +245,7 @@ program lma_driver
 
     deallocate(tile, kstart, kstop)
 
-  else if (tiling) then
+  else if (tiling .and. .not. direct_tiling) then
     !$acc data copyin(ntiles_per_colour, tmap, data1, data2, op_data, map1, map2)
     call system_clock(startclock, clockrate)
 

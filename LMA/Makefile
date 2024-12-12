@@ -49,7 +49,7 @@ VPATH=../common:.
 all : lma_driver
 
 clean:
-	rm -f *.s *.o *.mod *.optrpt *.lst lma_driver dino.saur.gz
+	rm -f *.s *.o *.mod *.optrpt *.lst *.bin *.fat *.ptx *.gpu *.cubin lma_driver dino.saur.gz
 
 tar:
 	tar -cvf dino.saur Makefile *.F90
