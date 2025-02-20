@@ -1,8 +1,11 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
-// Simple saxpy-like kernel with a single array for measuring data movement
-__global__ void saxpy(int n, float a, float * x, float y)
+// Set floating point type
+#define FTYPE float
+
+// Simple axpy-like kernel with a single array for measuring data movement
+__global__ void axpy(int n, FTYPE a, FTYPE * x, FTYPE y)
 {
   int i = blockIdx.x*blockDim.x + threadIdx.x;
   if (i < n) x[i] = a*x[i] + y;
@@ -15,36 +18,36 @@ int main()
   const size_t Nblocks = 100000;
 
   // Kernel constants
-  const float x = 1.0;
-  const float a = 2.0;
-  const float y = 0.432;
+  const FTYPE x = 1.0;
+  const FTYPE a = 2.0;
+  const FTYPE y = 3.0;
 
   // Array size
   const size_t N = Nthreads*Nblocks;
 
-  // Host FP32 array
-  float * h_x;
-  cudaMallocHost(&h_x, N*sizeof(float));
+  // Host array
+  FTYPE * h_x;
+  cudaMallocHost(&h_x, N*sizeof(FTYPE));
   for (size_t i = 0; i < N ; i++)
   {
     h_x[i] = x;
   }
 
   // Device array
-  float * d_x;
-  cudaMalloc(&d_x, N*sizeof(float));
+  FTYPE * d_x;
+  cudaMalloc(&d_x, N*sizeof(FTYPE));
 
   // Copy data to device and launch kernels
-  cudaMemcpy(d_x, h_x, N*sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_x, h_x, N*sizeof(FTYPE), cudaMemcpyHostToDevice);
 
-  saxpy<<<Nblocks,Nthreads>>>(N, a, d_x, y);
+  axpy<<<Nblocks,Nthreads>>>(N, a, d_x, y);
 
   // Copy back, compare, and tidy up
-  cudaMemcpy(h_x, d_x, N*sizeof(float), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_x, d_x, N*sizeof(FTYPE), cudaMemcpyDeviceToHost);
   size_t nerrors = 0;
   for (size_t i = 0; i < N ; i++)
   {
-    if ( abs(h_x[i]-(a*x+y))/(a*x+y) > 1.0e-7 ) nerrors++;
+    if ( abs((h_x[i]-(a*x+y))/(a*x+y)) > 1.0e-7 ) nerrors++;
   }
   std::cout << "Number of errors: " << nerrors << "\n";
 
