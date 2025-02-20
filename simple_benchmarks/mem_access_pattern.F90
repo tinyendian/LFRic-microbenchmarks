@@ -1,7 +1,7 @@
 program mem_access_pattern
   implicit none
   integer(kind=4) :: nxsize, nysize, veclength, ntimes
-  integer(kind=4) :: k, stride, nxsize_delta
+  integer(kind=4) :: k, stride
   real(kind=4) :: timing
 
   ! Test performance of different memory access patterns on GPUs:
@@ -17,32 +17,33 @@ program mem_access_pattern
   ! Set parameters
   ! Contiguous array dimension
   nxsize = 32
-  ! Second array dimension
+  ! Second array dimension (number of gangs/thread blocks)
   nysize = 100000
-  ! Inner loop vector length
+  ! Inner loop vector length (thread block size)
   veclength = 32
+  ! Strided array access
+  stride = 1
   ! Repeat benchmark for robust measurements
   ntimes = 1
 
   call initialise_random()
 
-  ! Vary contiguous array size
-  do nxsize_delta = -30, 30, 5
-    timing = 0.0
-    do k = 1, ntimes
-      timing = timing + saxpy_2d(nxsize+nxsize_delta, nysize, veclength)
-    end do
-    print '(3(A,X,I6,X),A,X,E12.6)', 'Saxpy nx=', nxsize+nxsize_delta, 'ny=', nysize, 'veclength=', veclength, 'timing [s]:', timing/dble(ntimes)
-  end do
+  print '(A,X,I1)', 'Byte size of real(kind=4):', storage_size(0_4)/8
+  print '(A,X,I1)', 'Byte size of real(kind=8):', storage_size(0_8)/8
 
-  ! Vary inner loop stride
-  do stride = 1, 8
-    timing = 0.0
-    do k = 1, ntimes
-      timing = timing + saxpy_2d_strided(nxsize, nysize, stride, veclength)
-    end do
-    print '(3(A,X,I6,X),A,X,E12.6)', 'Saxpy strided nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, 'timing [s]:', timing/dble(ntimes)
+  ! FP32 variant, stride-1 version
+  timing = 0.0
+  do k = 1, ntimes
+    timing = timing + saxpy_2d(nxsize, nysize, veclength)
   end do
+  print '(3(A,X,I6,X),A,X,E12.6)', 'Saxpy nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, 'timing [s]:', timing/dble(ntimes)
+
+  ! Strided version
+  timing = 0.0
+  do k = 1, ntimes
+    timing = timing + saxpy_2d_strided(nxsize, nysize, stride, veclength)
+  end do
+  print '(3(A,X,I6,X),A,X,E12.6)', 'Saxpy strided nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, 'timing [s]:', timing/dble(ntimes)
 
   ! FP64 variant
   timing = 0.0
