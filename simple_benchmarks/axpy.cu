@@ -17,6 +17,9 @@ int main()
   const size_t Nthreads = 32;
   const size_t Nblocks = 100000;
 
+  std::cout << "Running with array size " << Nthreads << "x" << Nblocks << "\n";
+  std::cout << "1 array element = " << sizeof(FTYPE) << " Bytes\n";
+
   // Kernel constants
   const FTYPE x = 1.0;
   const FTYPE a = 2.0;
