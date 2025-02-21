@@ -16,15 +16,15 @@ program mem_access_pattern
 
   ! Set parameters
   ! Contiguous array dimension
-  nxsize = 32
+  nxsize = 192
   ! Second array dimension (number of gangs/thread blocks)
   nysize = 100000
   ! Inner loop vector length (thread block size)
-  veclength = 32
+  veclength = nxsize
   ! Strided array access
   stride = 1
   ! Repeat benchmark for robust measurements
-  ntimes = 1
+  ntimes = 50
 
   call initialise_random()
 
@@ -36,21 +36,24 @@ program mem_access_pattern
   do k = 1, ntimes
     timing = timing + saxpy_2d(nxsize, nysize, veclength)
   end do
-  print '(3(A,X,I6,X),A,X,E12.6)', 'Saxpy nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, 'timing [s]:', timing/dble(ntimes)
+  print '(3(A,X,I6,X),2(A,X,E12.6,X))', 'Saxpy nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, &
+        'timing per element [s]:', timing/dble(ntimes*nxsize*nysize), 'total timing [s]:', timing/dble(ntimes)
 
   ! Strided version
   timing = 0.0
   do k = 1, ntimes
     timing = timing + saxpy_2d_strided(nxsize, nysize, stride, veclength)
   end do
-  print '(3(A,X,I6,X),A,X,E12.6)', 'Saxpy strided nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, 'timing [s]:', timing/dble(ntimes)
+  print '(3(A,X,I6,X),2(A,X,E12.6,X))', 'Saxpy strided nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, &
+        'timing per element [s]:', timing/dble(ntimes*nxsize*nysize), 'total timing [s]:', timing/dble(ntimes)
 
   ! FP64 variant
   timing = 0.0
   do k = 1, ntimes
     timing = timing + daxpy_2d(nxsize, nysize, veclength)
   end do
-  print '(3(A,X,I6,X),A,X,E12.6)', 'Daxpy nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, 'timing [s]:', timing/dble(ntimes)
+  print '(3(A,X,I6,X),2(A,X,E12.6,X))', 'Daxpy nx=', nxsize, 'ny=', nysize, 'veclength=', veclength, &
+        'timing [s]:', timing/dble(ntimes*nxsize*nysize), 'total timing [s]:', timing/dble(ntimes)
 
 contains
 
@@ -107,7 +110,7 @@ contains
     kgoarr = 2.345_4*kgoarr + 0.432_4
     if (maxval(abs((dataarr-kgoarr)/kgoarr)) > 1.0e-7) print *, 'WARNING - GPU and CPU results do not match'
 
-    timing = dble(stopclock - startclock)/dble(clockrate*nx*ny)
+    timing = dble(stopclock - startclock)/dble(clockrate)
 
   end function saxpy_2d
 
@@ -145,7 +148,7 @@ contains
     kgoarr(1:nx*dx:dx,:) = 2.345_4*kgoarr(1:nx*dx:dx,:) + 0.432_4
     if (maxval(abs((dataarr-kgoarr)/kgoarr)) > 1.0e-7) print *, 'WARNING - GPU and CPU results do not match'
 
-    timing = dble(stopclock - startclock)/dble(clockrate*nx*ny)
+    timing = dble(stopclock - startclock)/dble(clockrate)
 
   end function saxpy_2d_strided
 
@@ -184,7 +187,7 @@ contains
     kgoarr = 2.345_8*kgoarr + 0.432_8
     if (maxval(abs((dataarr-kgoarr)/kgoarr)) > 1.0e-7) print *, 'WARNING - GPU and CPU results do not match'
 
-    timing = dble(stopclock - startclock)/dble(clockrate*nx*ny)
+    timing = dble(stopclock - startclock)/dble(clockrate)
 
   end function daxpy_2d
 
