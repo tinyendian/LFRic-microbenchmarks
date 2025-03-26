@@ -1,8 +1,8 @@
 program mem_access_pattern
   implicit none
-  integer(kind=4) :: nxsize, nysize, veclength, ntimes
-  integer(kind=4) :: k, stride
-  real(kind=4) :: timing
+  integer(kind=8) :: nxsize, nysize, veclength, ntimes
+  integer(kind=8) :: k, stride
+  real(kind=8) :: timing
 
   ! Test performance of different memory access patterns on GPUs:
   ! - Match/mismatch between loop vector length and contiguous array dimension
@@ -59,7 +59,7 @@ contains
 
   subroutine initialise_random()
     implicit none
-    integer(kind=4) :: seed_size
+    integer(kind=8) :: seed_size
     integer(kind=8) :: startclock, clockrate
     integer(kind=8), allocatable :: seedarr(:)
 
@@ -77,9 +77,9 @@ contains
 
   function saxpy_2d(nx, ny, acc_vector_length) result(timing)
     implicit none
-    integer, intent(in) :: nx, ny, acc_vector_length
+    integer(kind=8), intent(in) :: nx, ny, acc_vector_length
     real(kind=8) :: timing
-    integer(kind=4) :: i, j
+    integer(kind=8) :: i, j
     real(kind=4) :: dataarr(nx, ny), kgoarr(nx, ny)
     integer(kind=8) :: startclock, stopclock, clockrate
 
@@ -118,9 +118,9 @@ contains
 
   function saxpy_2d_strided(nx, ny, dx, acc_vector_length) result(timing)
     implicit none
-    integer, intent(in) :: nx, ny, dx, acc_vector_length
+    integer(kind=8), intent(in) :: nx, ny, dx, acc_vector_length
     real(kind=8) :: timing
-    integer(kind=4) :: i, j
+    integer(kind=8) :: i, j
     real(kind=4) :: dataarr(nx*dx, ny), kgoarr(nx*dx, ny)
     integer(kind=8) :: startclock, stopclock, clockrate
 
@@ -156,9 +156,9 @@ contains
 
   function daxpy_2d(nx, ny, acc_vector_length) result(timing)
     implicit none
-    integer, intent(in) :: nx, ny, acc_vector_length
+    integer(kind=8), intent(in) :: nx, ny, acc_vector_length
     real(kind=8) :: timing
-    integer(kind=4) :: i, j
+    integer(kind=8) :: i, j
     real(kind=8) :: dataarr(nx, ny), kgoarr(nx, ny)
     integer(kind=8) :: startclock, stopclock, clockrate
 
