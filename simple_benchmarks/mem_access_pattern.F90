@@ -3,6 +3,7 @@ program mem_access_pattern
   integer(kind=8) :: nxsize, nysize, veclength, ntimes
   integer(kind=8) :: k, stride
   real(kind=8) :: timing
+  character(len=256) :: arg
 
   ! Test performance of different memory access patterns on GPUs:
   ! - Match/mismatch between loop vector length and contiguous array dimension
@@ -14,9 +15,11 @@ program mem_access_pattern
   !            to ensure that the cache does not compensate for non-optimal
   !            memory access patterns
 
-  ! Set parameters
-  ! Contiguous array dimension
-  nxsize = 192
+  ! Get contiguous array dimension from the command line
+  call get_command_argument(1, arg)
+  read(arg,*) nxsize
+
+  ! Set other parameters
   ! Second array dimension (number of gangs/thread blocks)
   nysize = 100000
   ! Inner loop vector length (thread block size)
